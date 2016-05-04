@@ -7,7 +7,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
 
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-
+    <Grid x:Name="MainGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" BorderThickness="1" >
+        <TextBlock x:Name="EditText" Margin="0,100,0,0"/>
+        <Button x:Name="OverlappedButton" GotFocus="OverlappedButton_GotFocus" LostFocus="OverlappedButton_LostFocus" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0" Click="OverlappedButton_Click" />
     </Grid>
 </Page>
