@@ -8,7 +8,11 @@
     mc:Ignorable="d" Loaded="Page_Loaded" FontFamily="MS Gothic" FontSize="24" Background="Red">
 
     <Grid x:Name="MainGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" BorderThickness="1" >
-        <TextBlock x:Name="EditText" Margin="0,100,0,0" FontSize="24"/>
+        <!--
+            入力テキストの1文字ごとにRunを作って、以下のTextBlockのInlinesに入れます。
+            テキストの入力位置を示すIカーソルもRunを作ってこの中に入れます。
+        -->
+        <TextBlock x:Name="EditText" Margin="0,50,0,0" FontSize="24"/>
         
         <!-- 
             TextBlockはフォーカスの取得/喪失の管理ができないので、TextBlockの上に透明のRadioButtonをかぶせてフォーカスの管理をしています。
