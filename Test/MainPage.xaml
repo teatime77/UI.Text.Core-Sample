@@ -5,10 +5,15 @@
     xmlns:local="using:Test"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    mc:Ignorable="d" Loaded="Page_Loaded" FontFamily="MS Gothic" FontSize="24" Background="Red">
 
     <Grid x:Name="MainGrid" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" BorderThickness="1" >
-        <TextBlock x:Name="EditText" Margin="0,100,0,0"/>
-        <Button x:Name="OverlappedButton" GotFocus="OverlappedButton_GotFocus" LostFocus="OverlappedButton_LostFocus" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0" Click="OverlappedButton_Click" />
+        <TextBlock x:Name="EditText" Margin="0,100,0,0" FontSize="24"/>
+        
+        <!-- 
+            TextBlockはフォーカスの取得/喪失の管理ができないので、TextBlockの上に透明のRadioButtonをかぶせてフォーカスの管理をしています。
+            ButtonでなくRadioButtonなのは、ButtonだとEnterキーが押されたイベントが取れないから。
+        -->
+        <RadioButton x:Name="OverlappedButton" GotFocus="OverlappedButton_GotFocus" LostFocus="OverlappedButton_LostFocus" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0" />
     </Grid>
 </Page>

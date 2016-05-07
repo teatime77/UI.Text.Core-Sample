@@ -303,7 +303,7 @@ namespace MyEdit {
                             break;
 
                         case UnderlineType.Thick:
-                            args.DrawingSession.DrawLine(x, yb, xe, yb, Colors.Red, 1);
+                            args.DrawingSession.DrawLine(x, yb, xe, yb, Colors.Black, 1);
                             break;
 
                         case UnderlineType.Thin:
