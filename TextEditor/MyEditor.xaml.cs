@@ -23,6 +23,8 @@ using Windows.UI.Core;
 using Windows.UI.Text;
 using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.ApplicationModel;
+using System.Threading.Tasks;
 
 
 // The User Control item template is documented at http://go.microsoft.com/fwlink/?LinkId=234236
@@ -30,9 +32,6 @@ using Windows.ApplicationModel.DataTransfer;
 namespace MyEdit {
     public sealed partial class MyEditor : UserControl {
         const char LF = '\n';
-        private CoreTextServicesManager textServiceManager = null;
-        CoreTextEditContext Ctx;
-        CoreTextRange Selection;
         int CursorPos = 0;
         List<TChar> Chars = new List<TChar>();
         CanvasTextFormat TextFormat = new CanvasTextFormat();
@@ -47,175 +46,34 @@ namespace MyEdit {
         Point ViewPadding = new Point(5, 5);
         Point ClickedPoint = new Point(double.NaN, double.NaN);
 
+        // テキストの選択位置
+        CoreTextRange Selection;
+
+        /*
+            コンストラクタ
+        */
         public MyEditor() {
             this.InitializeComponent();
 
-            this.Selection.StartCaretPosition = 0;
-            this.Selection.EndCaretPosition = 0;
+            // テキストの選択位置を初期化します。
+            Selection.StartCaretPosition = 0;
+            Selection.EndCaretPosition = 0;
 
             //TextFormat.FontFamily = "ＭＳ ゴシック";
         }
 
+        /*
+            コントロールがロードされた。
+        */
         private void UserControl_Loaded(object sender, RoutedEventArgs e) {
+            Debug.WriteLine("<<--- Control Loaded");
             CoreWindow wnd = CoreApplication.GetCurrentView().CoreWindow;
-            wnd.KeyDown += CoreWindow_KeyDown;
-            wnd.KeyUp += CoreWindow_KeyUp;
-            wnd.PointerPressed += Wnd_PointerPressed;
-            wnd.PointerWheelChanged += Wnd_PointerWheelChanged;
-        }
 
-        void UpdateEditContext() {
-            //if (Application.Current..ExecutablePath.IndexOf("devenv.exe", StringComparison.OrdinalIgnoreCase) > -1) {
-            //    return;
-            //}
-            //if (Process System.Diagnostics.Process.GetCurrentProcess().ProcessName == "devenv") {
-            //    return;
-            //}
-            if (textServiceManager == null) {
-
-                textServiceManager = CoreTextServicesManager.GetForCurrentView();
-                textServiceManager.InputLanguageChanged += TextServiceManager_InputLanguageChanged;
-            }
-
-            Ctx = textServiceManager.CreateEditContext();
-
-            Ctx.CompositionCompleted += Ctx_CompositionCompleted;
-            Ctx.CompositionStarted += Ctx_CompositionStarted;
-            Ctx.FocusRemoved += Ctx_FocusRemoved;
-            Ctx.FormatUpdating += Ctx_FormatUpdating;
-            Ctx.LayoutRequested += Ctx_LayoutRequested;
-            Ctx.NotifyFocusLeaveCompleted += Ctx_NotifyFocusLeaveCompleted;
-            Ctx.SelectionRequested += Ctx_SelectionRequested;
-            Ctx.SelectionUpdating += Ctx_SelectionUpdating;
-            Ctx.TextRequested += Ctx_TextRequested;
-            Ctx.TextUpdating += Ctx_TextUpdating;
-
-            Debug.WriteLine("Policy:{0} Scope:{1} Read:{2} Name:{3}",
-                Ctx.InputPaneDisplayPolicy.ToString(),
-                Ctx.InputScope.ToString(),
-                Ctx.IsReadOnly.ToString(),
-                (Ctx.Name == null ? "null" : Ctx.Name)
-            );
-
-            Ctx.NotifyFocusEnter();
-        }
-
-        private void TextServiceManager_InputLanguageChanged(CoreTextServicesManager sender, object ev) {
-            Windows.Globalization.Language lng = sender.InputLanguage;
-            if (lng != null) {
-
-                Debug.WriteLine("Lang:{0}", lng.DisplayName);
-            }
-            Debug.WriteLine("Input Language Changed");
-
-            UpdateEditContext();
-        }
-
-        private void Ctx_TextUpdating(CoreTextEditContext sender, CoreTextTextUpdatingEventArgs ev) {
-            for (int i = ev.Range.EndCaretPosition - 1; ev.Range.StartCaretPosition <= i; i--) {
-                Chars.RemoveAt(i);
-            }
-
-            for (int i = 0; i < ev.Text.Length; i++) {
-                Chars.Insert(ev.Range.StartCaretPosition + i, new TChar(ev.Text[i]));
-            }
-
-            this.Selection.StartCaretPosition = ev.Range.StartCaretPosition + ev.Text.Length;
-            this.Selection.EndCaretPosition = this.Selection.StartCaretPosition;
-
-            CursorPos = this.Selection.EndCaretPosition;
-
-            Debug.WriteLine("Text Updating:({0},{1})->({2},{3}) [{4}] {5}",
-                ev.Range.StartCaretPosition, ev.Range.EndCaretPosition,
-                ev.NewSelection.StartCaretPosition, ev.NewSelection.EndCaretPosition,
-                ev.Text,
-                ev.Result
-            );
-
-            Win2DCanvas.Invalidate();
-        }
-
-        private void Ctx_SelectionUpdating(CoreTextEditContext sender, CoreTextSelectionUpdatingEventArgs ev) {
-            this.Selection = ev.Selection;
-            CursorPos   = this.Selection.EndCaretPosition;
-
-            Debug.WriteLine("Selection Updating: cancel:{0} result:{1} ({2},{3})",
-                ev.IsCanceled,
-                ev.Result,
-                ev.Selection.StartCaretPosition, ev.Selection.EndCaretPosition
-            );
-        }
-
-        private void Ctx_SelectionRequested(CoreTextEditContext sender, CoreTextSelectionRequestedEventArgs ev) {
-            ev.Request.Selection = this.Selection;
-
-            Debug.WriteLine("SelectionRequested : {0}-{1}", this.Selection.StartCaretPosition, this.Selection.EndCaretPosition);
-        }
-
-        private void Ctx_NotifyFocusLeaveCompleted(CoreTextEditContext sender, object ev) {
-            Debug.WriteLine("NotifyFocusLeaveCompleted");
-        }
-
-        private void Ctx_LayoutRequested(CoreTextEditContext sender, CoreTextLayoutRequestedEventArgs ev) {
-            ev.Request.LayoutBounds.ControlBounds = new Rect(0, 0, 100, 100);
-            ev.Request.LayoutBounds.TextBounds = new Rect(0, 0, 100, 100);
-
-            //Point pt1 = thePage.TransformToVisual(null).TransformPoint(new Point(0, 0));
-            //Point pt = txt_Code.TransformToVisual(thePage).TransformPoint(new Point(0, 0));
-            //Point pt2 = thePage.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
-
-            Debug.WriteLine("LayoutRequested");
-        }
-
-        private void Ctx_FormatUpdating(CoreTextEditContext sender, CoreTextFormatUpdatingEventArgs ev) {
-            for(int i = ev.Range.StartCaretPosition; i < ev.Range.EndCaretPosition; i++) {
-
-                if(ev.UnderlineType != null) {
-                    Chars[i].Underline = ev.UnderlineType.Value;
-                }
-            }
-            Debug.WriteLine("Format Updating: BG:{0} cancel:{1} range:({2},{3}) reason:{4} result:{5} color:{6} under-line:({7},{8})",
-                (ev.BackgroundColor == null ? "null" : ev.BackgroundColor.Value.ToString()),
-                ev.IsCanceled,
-                ev.Range.StartCaretPosition, ev.Range.EndCaretPosition,
-                ev.Reason,
-                ev.Result,
-                (ev.TextColor == null ? "null" : ev.TextColor.Value.ToString()),
-                (ev.UnderlineColor == null ? "null" : ev.UnderlineColor.Value.ToString()),
-                (ev.UnderlineType == null ? "null" : ev.UnderlineType.Value.ToString())
-            );
-
-            Win2DCanvas.Invalidate();
-        }
-
-        private void Ctx_FocusRemoved(CoreTextEditContext sender, object ev) {
-            Debug.WriteLine("FocusRemoved");
-        }
-
-        private void Ctx_CompositionCompleted(CoreTextEditContext sender, CoreTextCompositionCompletedEventArgs ev) {
-            InComposition = false;
-            StringWriter sw = new StringWriter();
-
-            foreach (CoreTextCompositionSegment seg in ev.CompositionSegments) {
-                sw.Write("({0},{1}):{2} ", seg.Range.StartCaretPosition, seg.Range.EndCaretPosition, seg.PreconversionString);
-            }
-
-            Debug.WriteLine("CompositionCompleted:{0} {1}", ev.IsCanceled, sw.ToString());
-        }
-
-        private void Ctx_CompositionStarted(CoreTextEditContext sender, CoreTextCompositionStartedEventArgs ev) {
-            InComposition = true;
-            Debug.WriteLine("CompositionStarted");
-        }
-
-        string CurrentLineString() {
-            return new string((from c in Chars select c.Chr).ToArray());
-        }
-
-        private void Ctx_TextRequested(CoreTextEditContext sender, CoreTextTextRequestedEventArgs ev) {
-            ev.Request.Text = CurrentLineString();
-
-            Debug.WriteLine("Text Requested : {0}-{1}", ev.Request.Range.StartCaretPosition, ev.Request.Range.EndCaretPosition);
+            // イベントハンドラを登録します。
+            wnd.KeyDown             += CoreWindow_KeyDown;
+            wnd.KeyUp               += CoreWindow_KeyUp;
+            wnd.PointerPressed      += CoreWindow_PointerPressed;
+            wnd.PointerWheelChanged += CoreWindow_PointerWheelChanged;
         }
 
         private void Win2DCanvas_Draw(Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args) {
@@ -443,7 +301,7 @@ namespace MyEdit {
             modifiedRange.StartCaretPosition = sel_start;
             modifiedRange.EndCaretPosition = sel_end;
 
-            Ctx.NotifyTextChanged(modifiedRange, new_text.Length, this.Selection);
+            editContext.NotifyTextChanged(modifiedRange, new_text.Length, Selection);
 
             int new_LF_cnt = GetLFCount(sel_start, sel_start + new_text.Length);
             LineCount += new_LF_cnt - old_LF_cnt;
@@ -467,7 +325,7 @@ namespace MyEdit {
 
             Debug.WriteLine("CoreWindow KeyDown : {0} {1} {2}", e.VirtualKey, OverlappedButton.FocusState, InComposition);
 
-            if (Ctx == null || InComposition || OverlappedButton.FocusState == FocusState.Unfocused) {
+            if (editContext == null || InComposition || OverlappedButton.FocusState == FocusState.Unfocused) {
                 return;
             }
 
@@ -476,7 +334,7 @@ namespace MyEdit {
                 if (0 < CursorPos) {
 
                     SetCursorPos(e.VirtualKey, CursorPos - 1);
-                    Ctx.NotifySelectionChanged(this.Selection);
+                    editContext.NotifySelectionChanged(Selection);
                 }
                 break;
 
@@ -484,7 +342,7 @@ namespace MyEdit {
                 if (CursorPos < Chars.Count) {
 
                     SetCursorPos(e.VirtualKey, CursorPos + 1);
-                    Ctx.NotifySelectionChanged(this.Selection);
+                    editContext.NotifySelectionChanged(Selection);
                 }
 
                 break;
@@ -559,7 +417,7 @@ namespace MyEdit {
 
                     if (new_pos < CursorPos) {
                         SetCursorPos(e.VirtualKey, new_pos);
-                        Ctx.NotifySelectionChanged(this.Selection);
+                        editContext.NotifySelectionChanged(Selection);
                     }
                 }
                 break;
@@ -582,7 +440,7 @@ namespace MyEdit {
                     if (CursorPos < new_pos) {
 
                         SetCursorPos(e.VirtualKey, new_pos);
-                        Ctx.NotifySelectionChanged(this.Selection);
+                        editContext.NotifySelectionChanged(Selection);
                     }
                 }
                 break;
@@ -599,7 +457,7 @@ namespace MyEdit {
                                 Debug.WriteLine("PageUp {0}", line_diff);
                                 SetCursorPos(e.VirtualKey, i);
                                 EditScroll.ScrollToVerticalOffset(Math.Min(EditCanvas.Height, line_idx * LineHeight));
-                                Ctx.NotifySelectionChanged(this.Selection);
+                                editContext.NotifySelectionChanged(Selection);
                                 break;
                             }
                         }
@@ -619,7 +477,7 @@ namespace MyEdit {
                                 Debug.WriteLine("PageDown {0}", line_diff);
                                 SetCursorPos(e.VirtualKey, i);
                                 EditScroll.ScrollToVerticalOffset(Math.Min(EditCanvas.Height, line_idx * LineHeight));
-                                Ctx.NotifySelectionChanged(this.Selection);
+                                editContext.NotifySelectionChanged(Selection);
                                 break;
                             }
                         }
@@ -731,7 +589,7 @@ namespace MyEdit {
         private void CoreWindow_KeyUp(CoreWindow sender, KeyEventArgs e) {
         }
 
-        private void Wnd_PointerPressed(CoreWindow sender, PointerEventArgs e) {
+        private void CoreWindow_PointerPressed(CoreWindow sender, PointerEventArgs e) {
             Point pt = Win2DCanvas.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
 
             ClickedPoint = new Point(e.CurrentPoint.Position.X - pt.X, e.CurrentPoint.Position.Y - pt.Y);
@@ -741,7 +599,7 @@ namespace MyEdit {
         }
 
 
-        private void Wnd_PointerWheelChanged(CoreWindow sender, PointerEventArgs args) {
+        private void CoreWindow_PointerWheelChanged(CoreWindow sender, PointerEventArgs args) {
             int scroll_direction = (0 < args.CurrentPoint.Properties.MouseWheelDelta ? -1 : 1);
             int offset = (int)Math.Round(EditScroll.VerticalOffset / LineHeight);
             EditScroll.ScrollToVerticalOffset((offset + scroll_direction) * LineHeight);
@@ -786,28 +644,9 @@ namespace MyEdit {
                 SelEnd = CursorPos;
             }
 
-            this.Selection.StartCaretPosition = pos;
-            this.Selection.EndCaretPosition = pos;
+            Selection.StartCaretPosition = pos;
+            Selection.EndCaretPosition = pos;
 
-            Win2DCanvas.Invalidate();
-        }
-
-        private void OverlappedButton_GotFocus(object sender, RoutedEventArgs e) {
-            Debug.WriteLine("ボタン GotFocus");
-            UpdateEditContext();
-            //if (Ctx == null) {
-            //}
-            //else {
-            //    Ctx.NotifyFocusEnter();
-            //}
-            Win2DCanvas.Invalidate();
-        }
-
-        private void OverlappedButton_LostFocus(object sender, RoutedEventArgs e) {
-            Debug.WriteLine("ボタン LostFocus");
-            if(Ctx != null) {
-                Ctx.NotifyFocusLeave();
-            }
             Win2DCanvas.Invalidate();
         }
 
@@ -818,6 +657,11 @@ namespace MyEdit {
         //private void OverlappedButton_KeyDown(object sender, KeyRoutedEventArgs e) {
         //    Debug.WriteLine("ボタン KeyDown : {0} {1} {2}", e.Key, OverlappedButton.FocusState, InComposition);
         //}
+
+
+        string CurrentLineString() {
+            return new string((from c in Chars select c.Chr).ToArray());
+        }
     }
 
     public class TChar {
