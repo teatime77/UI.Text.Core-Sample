@@ -34,17 +34,15 @@ namespace MyEdit {
         const char LF = '\n';
         int CursorPos = 0;
         List<TChar> Chars = new List<TChar>();
+        List<TShape> DrawList = new List<TShape>();
         CanvasTextFormat TextFormat = new CanvasTextFormat();
         bool InComposition = false;
         int SelOrigin = -1;
         int SelCurrent = -1;
-        int SelStart;
-        int SelEnd;
         int LineCount = 1;
         double LineHeight = double.NaN;
         int ViewLineCount;
         Point ViewPadding = new Point(5, 5);
-        Point ClickedPoint = new Point(double.NaN, double.NaN);
 
         // テキストの選択位置
         CoreTextRange Selection;
@@ -76,7 +74,14 @@ namespace MyEdit {
             wnd.PointerWheelChanged += CoreWindow_PointerWheelChanged;
         }
 
+        Size MeasureText(string str, CanvasTextFormat text_format) {
+            Rect rc = (new CanvasTextLayout(Win2DCanvas, str, text_format, float.MaxValue, float.MaxValue)).LayoutBounds;
+
+            return new Size(rc.Width, rc.Height);
+        }
+
         private void Win2DCanvas_Draw(Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args) {
+            DrawList.Clear();
             if (double.IsNaN(LineHeight)) {
                 // 最初の場合
 
@@ -112,7 +117,6 @@ namespace MyEdit {
                 }
             }
 
-
             float x_start = (float)ViewPadding.X, y = (float)ViewPadding.Y;
 
             int sel_start = Math.Min(SelOrigin, SelCurrent);
@@ -139,13 +143,13 @@ namespace MyEdit {
 
                     line_sw.Write(str);
 
-                    Rect rc = (new CanvasTextLayout(args.DrawingSession, str, TextFormat, float.MaxValue, float.MaxValue)).LayoutBounds;
+                    Size sz = MeasureText(str, TextFormat);
 
-                    float xe = (float)(x + rc.Width);
-                    float yb = (float)(y + rc.Height);
+                    float xe = (float)(x + sz.Width);
+                    float yb = (float)(y + sz.Height);
                     if (selected) {
 
-                        args.DrawingSession.FillRectangle(x, y, (float)rc.Width, (float)rc.Height, Colors.Blue);
+                        args.DrawingSession.FillRectangle(x, y, (float)sz.Width, (float)sz.Height, Colors.Blue);
                         args.DrawingSession.DrawText(str, x, y, Colors.White, TextFormat);
                     }
                     else {
@@ -174,31 +178,9 @@ namespace MyEdit {
                         }
                     }
 
-                    if(! double.IsNaN( ClickedPoint.X)) {
+                    DrawList.Add(new TShape(x, y, sz, phrase_start_pos, pos));
 
-                        Rect phrase_rc = new Rect(x, y, rc.Width, rc.Height);
-
-                        if (phrase_rc.Contains(ClickedPoint)) {
-
-                            int phrase_pos;
-                            StringWriter phrase_sw = new StringWriter();
-                            for(phrase_pos = phrase_start_pos; phrase_pos <= pos; phrase_pos++) {
-
-                                phrase_sw.Write(Chars[phrase_pos].Chr);
-                                Rect rc2 = (new CanvasTextLayout(args.DrawingSession, phrase_sw.ToString(), TextFormat, float.MaxValue, float.MaxValue)).LayoutBounds;
-                                Rect sub_phrase_rc = new Rect(x, y, rc2.Width, rc2.Height);
-                                if (sub_phrase_rc.Contains(ClickedPoint)) {
-
-                                    SetCursorPos(VirtualKey.None, phrase_pos);
-                                    break;
-                                }
-                            }
-
-                            ClickedPoint = new Point(double.NaN, double.NaN);
-                        }
-                    }
-
-                    x += (float)rc.Width;
+                    x += (float)sz.Width;
 
                     if (Chars.Count <= pos || Chars[pos].Chr == LF) {
 
@@ -235,8 +217,6 @@ namespace MyEdit {
                     break;
                 }
             }
-
-            ClickedPoint = new Point(double.NaN, double.NaN);
         }
 
         private void Win2DCanvas_SizeChanged(object sender, SizeChangedEventArgs e) {
@@ -244,7 +224,6 @@ namespace MyEdit {
 
         private void Win2DCanvas_PointerPressed(object sender, PointerRoutedEventArgs e) {
             Debug.WriteLine("Win2DCanvas_PointerPressed");
-
         }
 
         int GetLineTop(int current_pos) {
@@ -315,6 +294,7 @@ namespace MyEdit {
                 }
             }
 
+
             Win2DCanvas.Invalidate();
         }
 
@@ -323,14 +303,14 @@ namespace MyEdit {
             int next_line_top;
             bool control_down = ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0);
 
-            Debug.WriteLine("CoreWindow KeyDown : {0} {1} {2}", e.VirtualKey, OverlappedButton.FocusState, InComposition);
+            Debug.WriteLine("<<--- CoreWindow KeyDown : {0} {1} {2}", e.VirtualKey, OverlappedButton.FocusState, InComposition);
 
             if (editContext == null || InComposition || OverlappedButton.FocusState == FocusState.Unfocused) {
                 return;
             }
 
             switch (e.VirtualKey) {
-            case Windows.System.VirtualKey.Left:
+            case VirtualKey.Left: // 左矢印(←)
                 if (0 < CursorPos) {
 
                     SetCursorPos(e.VirtualKey, CursorPos - 1);
@@ -338,7 +318,7 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.Right:
+            case VirtualKey.Right: // 右矢印(→)
                 if (CursorPos < Chars.Count) {
 
                     SetCursorPos(e.VirtualKey, CursorPos + 1);
@@ -347,7 +327,7 @@ namespace MyEdit {
 
                 break;
 
-            case Windows.System.VirtualKey.Up: {
+            case VirtualKey.Up: { // 上矢印(↑)
                     // 現在の行の先頭位置を得る。
                     current_line_top = GetLineTop(CursorPos);
 
@@ -367,7 +347,7 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.Down: {
+            case VirtualKey.Down: { // 下矢印(↓)
                     // 現在の行の先頭位置を得る。
                     current_line_top = GetLineTop(CursorPos);
 
@@ -400,7 +380,7 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.Home: {
+            case VirtualKey.Home: {
                     int new_pos;
 
                     if ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0) {
@@ -422,7 +402,7 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.End: {
+            case VirtualKey.End: {
                     int new_pos;
 
                     if ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0) {
@@ -485,13 +465,13 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.Back: {
+            case VirtualKey.Back: {
 
                     if (0 < CursorPos) {
 
                         if (SelOrigin != -1) {
 
-                            ReplaceText(SelStart, SelEnd, "");
+                            ReplaceText(Selection.StartCaretPosition, Selection.EndCaretPosition, "");
                         }
                         else {
 
@@ -501,13 +481,13 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.Delete: {
+            case VirtualKey.Delete: {
 
                     if (CursorPos < Chars.Count) {
 
                         if(SelOrigin != -1) {
 
-                            ReplaceText(SelStart, SelEnd, "");
+                            ReplaceText(Selection.StartCaretPosition, Selection.EndCaretPosition, "");
                         }
                         else {
 
@@ -517,13 +497,14 @@ namespace MyEdit {
                 }
                 break;
 
-            case Windows.System.VirtualKey.Enter: {
-                    ReplaceText(SelStart, SelEnd, "\n");
+            case VirtualKey.Enter: {
+                    ReplaceText(Selection.StartCaretPosition, Selection.EndCaretPosition, "\n");
                 }
                 break;
 
             case VirtualKey.C:
                 if (control_down && SelOrigin != -1) {
+                    // Ctrl+Cで選択中の場合
 
                     // https://msdn.microsoft.com/en-us/windows/uwp/app-to-app/copy-and-paste
 
@@ -545,6 +526,7 @@ namespace MyEdit {
 
             case VirtualKey.V:
                 if (control_down) {
+                    // Ctrl+Vの場合
 
                     DataPackageView dataPackageView = Clipboard.GetContent();
                     if (dataPackageView.Contains(StandardDataFormats.Text)) {
@@ -569,6 +551,7 @@ namespace MyEdit {
             }
 
             if (SelOrigin != -1 && (Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift) & CoreVirtualKeyStates.Down) == 0) {
+                // 選択中でシフトキーが押されてない場合
 
                 switch (e.VirtualKey) {
                 case VirtualKey.Shift:
@@ -576,10 +559,12 @@ namespace MyEdit {
                     break;
 
                 default:
+                    // 選択状態を解除する。
+
                     SelOrigin = -1;
                     SelCurrent = -1;
-                    SelStart = CursorPos;
-                    SelEnd = CursorPos;
+                    Selection.StartCaretPosition = CursorPos;
+                    Selection.EndCaretPosition = CursorPos;
                     Win2DCanvas.Invalidate();
                     break;
                 }
@@ -590,14 +575,33 @@ namespace MyEdit {
         }
 
         private void CoreWindow_PointerPressed(CoreWindow sender, PointerEventArgs e) {
-            Point pt = Win2DCanvas.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
+            Point canvas_pos = Win2DCanvas.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
 
-            ClickedPoint = new Point(e.CurrentPoint.Position.X - pt.X, e.CurrentPoint.Position.Y - pt.Y);
+            Point pt = new Point(e.CurrentPoint.Position.X - canvas_pos.X, e.CurrentPoint.Position.Y - canvas_pos.Y);
 
-            Debug.WriteLine("CoreWindow PointerPressed {0} {1} {2}", e.CurrentPoint.Position, pt, ClickedPoint);
+            foreach(TShape shape in DrawList) {
+                if (shape.Bounds.Contains(pt)) {
+
+                    int phrase_pos;
+                    StringWriter phrase_sw = new StringWriter();
+                    for (phrase_pos = shape.Range.StartPos; phrase_pos <= shape.Range.EndPos; phrase_pos++) {
+
+                        phrase_sw.Write(Chars[phrase_pos].Chr);
+
+                        Size sz = MeasureText(phrase_sw.ToString(), TextFormat);
+                        Rect sub_phrase_rc = new Rect(shape.Bounds.X, shape.Bounds.Y, sz.Width, sz.Height);
+                        if (sub_phrase_rc.Contains(pt)) {
+
+                            SetCursorPos(VirtualKey.None, phrase_pos);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Debug.WriteLine("CoreWindow PointerPressed {0} {1} {2}", e.CurrentPoint.Position, canvas_pos, pt);
             Win2DCanvas.Invalidate();
         }
-
 
         private void CoreWindow_PointerWheelChanged(CoreWindow sender, PointerEventArgs args) {
             int scroll_direction = (0 < args.CurrentPoint.Properties.MouseWheelDelta ? -1 : 1);
@@ -613,12 +617,12 @@ namespace MyEdit {
 
             if (shift_down && CursorPos != pos) {
                 switch (key) {
-                case Windows.System.VirtualKey.Left:
-                case Windows.System.VirtualKey.Right:
-                case Windows.System.VirtualKey.Up:
-                case Windows.System.VirtualKey.Down:
-                case Windows.System.VirtualKey.Home:
-                case Windows.System.VirtualKey.End:
+                case VirtualKey.Left:
+                case VirtualKey.Right:
+                case VirtualKey.Up:
+                case VirtualKey.Down:
+                case VirtualKey.Home:
+                case VirtualKey.End:
 
                     if (SelOrigin == -1) {
 
@@ -635,17 +639,14 @@ namespace MyEdit {
 
             if (SelOrigin != -1) {
 
-                SelStart = Math.Min(SelOrigin, SelCurrent);
-                SelEnd = Math.Max(SelOrigin, SelCurrent);
+                Selection.StartCaretPosition = Math.Min(SelOrigin, SelCurrent);
+                Selection.EndCaretPosition = Math.Max(SelOrigin, SelCurrent);
             }
             else {
 
-                SelStart = CursorPos;
-                SelEnd = CursorPos;
+                Selection.StartCaretPosition = CursorPos;
+                Selection.EndCaretPosition = CursorPos;
             }
-
-            Selection.StartCaretPosition = pos;
-            Selection.EndCaretPosition = pos;
 
             Win2DCanvas.Invalidate();
         }
@@ -670,6 +671,25 @@ namespace MyEdit {
 
         public TChar(char c) {
             Chr = c;
+        }
+    }
+
+    public struct TRange {
+        public Int32 StartPos;
+        public Int32 EndPos;
+    }
+
+    public class TShape {
+        public Rect     Bounds;
+        public TRange   Range;
+
+        public TShape(double x, double y, Size sz, int start_pos, int end_pos) {
+            Bounds.X        = x;
+            Bounds.Y        = y;
+            Bounds.Width    = sz.Width;
+            Bounds.Height   = sz.Height;
+            Range.StartPos  = start_pos;
+            Range.EndPos    = end_pos;
         }
     }
 
