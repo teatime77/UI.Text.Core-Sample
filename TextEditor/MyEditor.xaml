@@ -17,11 +17,11 @@
             <Canvas x:Name="EditCanvas" HorizontalAlignment="Left" VerticalAlignment="Top" Width="2000" Height="2000" />
         </ScrollViewer>
 
-        <canvas:CanvasControl x:Name="Win2DCanvas" Draw="Win2DCanvas_Draw" UseSystemFocusVisuals="True" IsTabStop="True" IsEnabled="True" Margin="0,0,16,16" SizeChanged="Win2DCanvas_SizeChanged" PointerPressed="Win2DCanvas_PointerPressed" />
+        <canvas:CanvasControl x:Name="Win2DCanvas" Draw="Win2DCanvas_Draw" UseSystemFocusVisuals="True" IsTabStop="True" IsEnabled="True" Margin="0,0,16,16" />
         <!--
         <Button x:Name="OverlappedButton" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0" GotFocus="OverlappedButton_GotFocus" LostFocus="OverlappedButton_LostFocus" />
         -->
-        <RadioButton x:Name="OverlappedButton" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0" GotFocus="OverlappedButton_GotFocus" LostFocus="OverlappedButton_LostFocus" Margin="0,0,16,16" />
+        <RadioButton x:Name="OverlappedButton" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0" GotFocus="OverlappedButton_GotFocus" LostFocus="OverlappedButton_LostFocus" Margin="0,0,16,16" PointerEntered="OverlappedButton_PointerEntered" PointerExited="OverlappedButton_PointerExited" />
 
         <!--
         <Slider VerticalAlignment="Bottom" Height="20" />

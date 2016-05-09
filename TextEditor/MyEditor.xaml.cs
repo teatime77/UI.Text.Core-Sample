@@ -25,6 +25,8 @@ using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.ApplicationModel;
 using System.Threading.Tasks;
+using Windows.UI.Input;
+using System.Collections;
 
 
 // The User Control item template is documented at http://go.microsoft.com/fwlink/?LinkId=234236
@@ -42,7 +44,13 @@ namespace MyEdit {
         int LineCount = 1;
         double LineHeight = double.NaN;
         int ViewLineCount;
-        Point ViewPadding = new Point(5, 5);
+        Point ViewPadding = new Point(50, 50);
+        IEnumerator PointerLoop;
+        DispatcherTimer PointerTimer;
+        EEvent PointerEventType = EEvent.Undefined;
+
+        CoreCursor ArrowCoreCursor = new CoreCursor(CoreCursorType.Arrow, 1);
+        CoreCursor IBeamCoreCursor = new CoreCursor(CoreCursorType.IBeam, 2);
 
         // テキストの選択位置
         CoreTextRange Selection;
@@ -52,6 +60,7 @@ namespace MyEdit {
         */
         public MyEditor() {
             this.InitializeComponent();
+            Debug.WriteLine("<<--- Initialize");
 
             // テキストの選択位置を初期化します。
             Selection.StartCaretPosition = 0;
@@ -71,7 +80,12 @@ namespace MyEdit {
             wnd.KeyDown             += CoreWindow_KeyDown;
             wnd.KeyUp               += CoreWindow_KeyUp;
             wnd.PointerPressed      += CoreWindow_PointerPressed;
+            wnd.PointerMoved        += CoreWindow_PointerMoved;
+            wnd.PointerReleased     += CoreWindow_PointerReleased;
             wnd.PointerWheelChanged += CoreWindow_PointerWheelChanged;
+
+            PointerTimer = new DispatcherTimer();
+            PointerTimer.Tick += PointerTimer_Tick;
         }
 
         Size MeasureText(string str, CanvasTextFormat text_format) {
@@ -81,6 +95,8 @@ namespace MyEdit {
         }
 
         private void Win2DCanvas_Draw(Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args) {
+            Debug.WriteLine("<<--- Draw");
+
             DrawList.Clear();
             if (double.IsNaN(LineHeight)) {
                 // 最初の場合
@@ -117,7 +133,8 @@ namespace MyEdit {
                 }
             }
 
-            float x_start = (float)ViewPadding.X, y = (float)ViewPadding.Y;
+            float x_start = (float)ViewPadding.X;
+            float y = (float)ViewPadding.Y;
 
             int sel_start = Math.Min(SelOrigin, SelCurrent);
             int sel_end = Math.Max(SelOrigin, SelCurrent);          
@@ -217,13 +234,6 @@ namespace MyEdit {
                     break;
                 }
             }
-        }
-
-        private void Win2DCanvas_SizeChanged(object sender, SizeChangedEventArgs e) {
-        }
-
-        private void Win2DCanvas_PointerPressed(object sender, PointerRoutedEventArgs e) {
-            Debug.WriteLine("Win2DCanvas_PointerPressed");
         }
 
         int GetLineTop(int current_pos) {
@@ -512,13 +522,13 @@ namespace MyEdit {
                     int sel_end = Math.Max(SelOrigin, SelCurrent);
 
                     char[] vc = new char[sel_end - sel_start];
-                    for(int i = sel_start; i < sel_end; i++) {
-                        vc[i] = Chars[i].Chr;
+                    for(int i = 0; i < vc.Length; i++) {
+                        vc[i] = Chars[sel_start + i].Chr;
                     }
 
                     DataPackage dataPackage = new DataPackage();
                     dataPackage.RequestedOperation = DataPackageOperation.Copy;
-                    dataPackage.SetText(new string(vc));
+                    dataPackage.SetText(new string(vc).Replace("\n", "\r\n"));
                     Clipboard.SetContent(dataPackage);
                 }
                 break;
@@ -565,6 +575,7 @@ namespace MyEdit {
                     SelCurrent = -1;
                     Selection.StartCaretPosition = CursorPos;
                     Selection.EndCaretPosition = CursorPos;
+
                     Win2DCanvas.Invalidate();
                     break;
                 }
@@ -572,14 +583,15 @@ namespace MyEdit {
         }
 
         private void CoreWindow_KeyUp(CoreWindow sender, KeyEventArgs e) {
+            Debug.WriteLine("<<--- KeyUp");
         }
 
-        private void CoreWindow_PointerPressed(CoreWindow sender, PointerEventArgs e) {
+        int TextPositionFromPointer(PointerPoint pointer) {
             Point canvas_pos = Win2DCanvas.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
 
-            Point pt = new Point(e.CurrentPoint.Position.X - canvas_pos.X, e.CurrentPoint.Position.Y - canvas_pos.Y);
+            Point pt = new Point(pointer.Position.X - canvas_pos.X, pointer.Position.Y - canvas_pos.Y);
 
-            foreach(TShape shape in DrawList) {
+            foreach (TShape shape in DrawList) {
                 if (shape.Bounds.Contains(pt)) {
 
                     int phrase_pos;
@@ -592,25 +604,154 @@ namespace MyEdit {
                         Rect sub_phrase_rc = new Rect(shape.Bounds.X, shape.Bounds.Y, sz.Width, sz.Height);
                         if (sub_phrase_rc.Contains(pt)) {
 
-                            SetCursorPos(VirtualKey.None, phrase_pos);
-                            break;
+                            return phrase_pos;
                         }
                     }
                 }
             }
 
-            Debug.WriteLine("CoreWindow PointerPressed {0} {1} {2}", e.CurrentPoint.Position, canvas_pos, pt);
-            Win2DCanvas.Invalidate();
+            return -1;
+        }
+
+        void HandlePointerEvent(EEvent event_type, Object event_args) {
+            if (PointerLoop != null) {
+                PointerEventType = event_type;
+                PointerLoop.MoveNext();
+            }
+        }
+
+        private void CoreWindow_PointerPressed(CoreWindow sender, PointerEventArgs e) {
+            if(editContext == null) {
+                return;
+            }
+
+            if(PointerLoop == null) {
+
+                PointerLoop = PointerHandler(e);
+            }
+
+            HandlePointerEvent(EEvent.PointerPressed, e);
+        }
+
+        private void CoreWindow_PointerMoved(CoreWindow sender, PointerEventArgs e) {
+            if (e.CurrentPoint.Properties.IsLeftButtonPressed && PointerLoop != null) {
+
+                int pos = TextPositionFromPointer(e.CurrentPoint);
+                if (pos != -1) {
+
+                    CursorPos = pos;
+                    SelCurrent = CursorPos;
+
+                    if (SelOrigin != -1) {
+
+                        Selection.StartCaretPosition = Math.Min(SelOrigin, SelCurrent);
+                        Selection.EndCaretPosition = Math.Max(SelOrigin, SelCurrent);
+                    }
+                    else {
+
+                        Selection.StartCaretPosition = CursorPos;
+                        Selection.EndCaretPosition = CursorPos;
+                    }
+
+                    Win2DCanvas.Invalidate();
+                }
+            }
+
+        }
+
+        private void CoreWindow_PointerReleased(CoreWindow sender, PointerEventArgs e) {
+            HandlePointerEvent(EEvent.PointerReleased, e);
+            Debug.WriteLine("<<--- CoreWindow PointerReleased");
+        }
+
+        private void PointerTimer_Tick(object sender, object e) {
+            Debug.WriteLine("<<--- PointerTimer");
+            PointerTimer.Stop();
+
+            HandlePointerEvent(EEvent.Timeout, null);
+        }
+
+        public IEnumerator PointerHandler(PointerEventArgs e) {
+            EEvent event_type = EEvent.Undefined;
+
+            Debug.Assert(PointerEventType == EEvent.PointerPressed);
+
+            PointerTimer.Interval = TimeSpan.FromMilliseconds(500);
+            PointerTimer.Start();
+            yield return 0;
+
+            while (event_type == EEvent.Undefined) {
+
+                switch (PointerEventType) {
+                case EEvent.Timeout:
+                    // 長押しの場合
+
+                    event_type = EEvent.LongPress;
+                    break;
+
+                case EEvent.PointerReleased:
+                    // クリックの場合
+
+                    PointerTimer.Interval = TimeSpan.FromMilliseconds(500);
+                    PointerTimer.Start();
+                    yield return 0;
+
+                    while (event_type == EEvent.Undefined) {
+                        switch (PointerEventType) {
+                        case EEvent.Timeout:
+                            // ダブルクリックでない場合
+
+                            event_type = EEvent.Tapped;
+                            break;
+
+                        case EEvent.PointerPressed:
+                            // ダブルクリックの場合
+
+                            event_type = EEvent.DoubleTapped;
+                            break;
+
+                        default:
+                            yield return 0;
+                            break;
+                        }
+                    }
+                    break;
+
+                default:
+                    yield return 0;
+                    break;
+                }
+            }
+
+            switch (event_type) {
+            case EEvent.Tapped:
+
+                int pos = TextPositionFromPointer(e.CurrentPoint);
+                if (pos != -1) {
+
+                    SetCursorPos(VirtualKey.None, pos);
+                    SelOrigin = CursorPos;
+                    SelCurrent = CursorPos;
+                }
+
+                Debug.WriteLine("<<--- PointerHandler {0} {1}", event_type, pos);
+                Win2DCanvas.Invalidate();
+                break;
+
+            default:
+                Debug.WriteLine("<<--- PointerHandler {0}", event_type);
+                break;
+            }
+
+            PointerLoop = null;
         }
 
         private void CoreWindow_PointerWheelChanged(CoreWindow sender, PointerEventArgs args) {
             int scroll_direction = (0 < args.CurrentPoint.Properties.MouseWheelDelta ? -1 : 1);
             int offset = (int)Math.Round(EditScroll.VerticalOffset / LineHeight);
             EditScroll.ScrollToVerticalOffset((offset + scroll_direction) * LineHeight);
-            //int line_idx = GetLFCount(0, CursorPos);
-            Debug.WriteLine("Wheel {0}", args.CurrentPoint.Properties.MouseWheelDelta);
+            Debug.WriteLine("<<--- PointerWheelChanged {0}", args.CurrentPoint.Properties.MouseWheelDelta);
         }
-
 
         void SetCursorPos(VirtualKey key, int pos) {
             bool shift_down = ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Shift) & CoreVirtualKeyStates.Down) != 0);
@@ -652,17 +793,60 @@ namespace MyEdit {
         }
 
         private void EditScroll_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e) {
+            Debug.WriteLine("<<--- ViewChanged");
             Win2DCanvas.Invalidate();
         }
-
-        //private void OverlappedButton_KeyDown(object sender, KeyRoutedEventArgs e) {
-        //    Debug.WriteLine("ボタン KeyDown : {0} {1} {2}", e.Key, OverlappedButton.FocusState, InComposition);
-        //}
-
 
         string CurrentLineString() {
             return new string((from c in Chars select c.Chr).ToArray());
         }
+
+        private void OverlappedButton_PointerEntered(object sender, PointerRoutedEventArgs e) {
+            CoreApplication.GetCurrentView().CoreWindow.PointerCursor = IBeamCoreCursor;
+
+        }
+
+        private void OverlappedButton_PointerExited(object sender, PointerRoutedEventArgs e) {
+            CoreApplication.GetCurrentView().CoreWindow.PointerCursor   = ArrowCoreCursor;
+
+        }
+    }
+
+    public enum EEvent {
+        Undefined,
+        Timeout,
+
+        Initialize,
+        Loaded,
+        GotFocus,
+        LostFocus,
+        Draw,
+
+        KeyDown,
+        KeyUp,
+        PointerPressed,
+        PointerReleased,
+
+        Tapped,
+        DoubleTapped,
+        LongPress,
+
+        PointerWheelChanged,
+        ViewChanged,
+
+        InputLanguageChanged,
+        TextUpdating,
+        SelectionUpdating,
+        FormatUpdating,
+
+        TextRequested,
+        SelectionRequested,
+        LayoutRequested,
+
+        NotifyFocusLeaveCompleted,
+        CompositionStarted,
+        CompositionCompleted,
+        FocusRemoved,
     }
 
     public class TChar {
