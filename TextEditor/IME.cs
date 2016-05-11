@@ -144,11 +144,12 @@ namespace MyEdit {
             テキストの内容の変化を通知してきた。
         */
         private void EditContext_TextUpdating(CoreTextEditContext sender, CoreTextTextUpdatingEventArgs ev) {
-            Debug.WriteLine("<<--- TextUpdating:({0},{1})->({2},{3}) [{4}] {5}",
+            Debug.WriteLine("<<--- TextUpdating:({0},{1})->({2},{3}) [{4}] {5} {6}",
                 ev.Range.StartCaretPosition, ev.Range.EndCaretPosition,
                 ev.NewSelection.StartCaretPosition, ev.NewSelection.EndCaretPosition,
                 ev.Text,
-                ev.Result
+                ev.Result,
+                MeasureText(ev.Text, TextFormat)
             );
 
             // 以前の選択位置の文字を末尾から取り除いていきます。
@@ -162,10 +163,8 @@ namespace MyEdit {
             }
 
             // アプリ内で持っているテキストの選択位置を更新します。
-            Selection.StartCaretPosition = ev.Range.StartCaretPosition + ev.Text.Length;
-            Selection.EndCaretPosition = Selection.StartCaretPosition;
-
-            CursorPos = Selection.EndCaretPosition;
+            SelOrigin  = ev.Range.StartCaretPosition  + ev.Text.Length;
+            SelCurrent = SelOrigin;
 
             Win2DCanvas.Invalidate();
         }
@@ -181,18 +180,22 @@ namespace MyEdit {
             );
 
             // アプリ内で持っているテキストの選択位置を更新します。
-            Selection = ev.Selection;
-            CursorPos = Selection.EndCaretPosition;
+            SelOrigin = ev.Selection.StartCaretPosition;
+            SelCurrent = ev.Selection.EndCaretPosition;
         }
 
         /*
             テキストの選択位置を聞いてきた。
         */
         private void EditContext_SelectionRequested(CoreTextEditContext sender, CoreTextSelectionRequestedEventArgs ev) {
-            Debug.WriteLine("<<--- SelectionRequested : {0}-{1}", Selection.StartCaretPosition, Selection.EndCaretPosition);
+            CoreTextRange rng;
+            rng.StartCaretPosition = SelStart;
+            rng.EndCaretPosition = SelEnd;
+
+            Debug.WriteLine("<<--- SelectionRequested : {0}-{1}", rng.StartCaretPosition, rng.EndCaretPosition);
 
             // アプリ内で持っているテキストの選択位置を返します。
-            ev.Request.Selection = Selection;
+            ev.Request.Selection = rng;
         }
 
         /*
@@ -226,10 +229,37 @@ namespace MyEdit {
             double edit_screen_y = wnd_rect.Y + edit_pos.Y;
 
             // Canvasを囲む矩形のスクリーン座標を返します。
-            ev.Request.LayoutBounds.ControlBounds = new Rect(edit_screen_x, edit_screen_y, Win2DCanvas.ActualWidth, Win2DCanvas.ActualHeight);
+            Rect canvas_rect = new Rect(edit_screen_x, edit_screen_y, Win2DCanvas.ActualWidth, Win2DCanvas.ActualHeight);
+            ev.Request.LayoutBounds.ControlBounds = canvas_rect;
 
-            // 選択範囲のテキストを囲む矩形をスクリーン座標で返します。
-            ev.Request.LayoutBounds.TextBounds = ev.Request.LayoutBounds.ControlBounds;
+            // 選択位置の語句を描画した図形または直前の図形のリストを得ます。(選択位置が文書の末尾にある場合は直前の図形を使います。)
+            var draw_list = from x in DrawList where x.StartPos <= SelCurrent && SelCurrent <= x.EndPos select x;
+            if (draw_list.Any()) {
+                // 図形を得られた場合
+
+                // 語句を描画した図形を得ます。
+                TShape phrase_shape = draw_list.First();
+
+                // 描画した語句の先頭から選択位置までのテキストのサイズを得ます。
+                Size sz = MeasureText(StringFromRange(phrase_shape.StartPos, SelCurrent), TextFormat);
+
+                // 選択位置のテキストを囲む矩形を計算します。
+                Rect text_rect;
+                text_rect.X = canvas_rect.X + phrase_shape.Bounds.X + sz.Width;
+                text_rect.Y = canvas_rect.Y + phrase_shape.Bounds.Y;
+                text_rect.Width = SpaceWidth;
+                text_rect.Height = sz.Height;
+
+                // 選択範囲のテキストを囲む矩形をスクリーン座標で返します。
+                ev.Request.LayoutBounds.TextBounds = text_rect;
+            }
+            else {
+                // 図形を得られない場合
+
+                // 選択範囲のテキストを囲む矩形はCanvasを囲む矩形とします。
+                ev.Request.LayoutBounds.TextBounds = canvas_rect;
+            }
+
         }
 
         /*
@@ -296,6 +326,18 @@ namespace MyEdit {
         */
         private void EditContext_FocusRemoved(CoreTextEditContext sender, object ev) {
             Debug.WriteLine("<<--- FocusRemoved");
+        }
+
+        /*
+            アプリ内のテキストの選択位置の変更をIMEに伝えます。
+        */
+        void MyNotifySelectionChanged() {
+            CoreTextRange new_range;
+            new_range.StartCaretPosition = SelStart;
+            new_range.EndCaretPosition = SelEnd;
+
+            Debug.WriteLine("--->> NotifySelectionChanged");
+            editContext.NotifySelectionChanged(new_range);
         }
     }
 }
