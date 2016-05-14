@@ -152,19 +152,7 @@ namespace MyEdit {
                 MeasureText(ev.Text, TextFormat)
             );
 
-            // 以前の選択位置の文字を末尾から取り除いていきます。
-            for (int i = ev.Range.EndCaretPosition - 1; ev.Range.StartCaretPosition <= i; i--) {
-                Chars.RemoveAt(i);
-            }
-
-            // 新しいテキストを挿入します。
-            for (int i = 0; i < ev.Text.Length; i++) {
-                Chars.Insert(ev.Range.StartCaretPosition + i, new TChar(ev.Text[i]));
-            }
-
-            // アプリ内で持っているテキストの選択位置を更新します。
-            SelOrigin  = ev.Range.StartCaretPosition  + ev.Text.Length;
-            SelCurrent = SelOrigin;
+            PushUndoStack(ev.Range.StartCaretPosition, ev.Range.EndCaretPosition, ev.Text);
 
             Win2DCanvas.Invalidate();
         }

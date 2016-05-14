@@ -90,6 +90,9 @@ namespace MyEdit {
         // Iカーソル
         CoreCursor IBeamCoreCursor = new CoreCursor(CoreCursorType.IBeam, 2);
 
+        Stack<TDiff> UndoStack = new Stack<TDiff>();
+        Stack<TDiff> RedoStack = new Stack<TDiff>();
+
         /*
             テキスト選択の開始位置
         */
@@ -347,29 +350,76 @@ namespace MyEdit {
             return cnt;
         }
 
-        void ReplaceText(int sel_start, int sel_end, string new_text) {
-            int old_LF_cnt = GetLFCount(sel_start, sel_end);
+        void UndoRedo(bool is_undo) {
+            Stack<TDiff> src_stack;
+            Stack<TDiff> dst_stack;
 
-            Chars.RemoveRange(sel_start, sel_end - sel_start);
+            if (is_undo) {
+                src_stack = UndoStack;
+                dst_stack = RedoStack;
+            }
+            else {
 
-            TChar[] vc = new TChar[new_text.Length];
-            for (int i = 0; i < new_text.Length; i++) {
-                vc[i] = new TChar(new_text[i]);
+                src_stack = RedoStack;
+                dst_stack = UndoStack;
             }
 
-            Chars.InsertRange(sel_start, vc);
+            if (src_stack.Count == 0) {
+                return;
+            }
 
-            SelOrigin   = sel_start + new_text.Length;
-            SelCurrent  = SelOrigin;
+            TDiff src_diff = src_stack.Pop();
+            TDiff dst_diff = new TDiff(src_diff.DiffPos, src_diff.InsertedCount, src_diff.RemovedChars.Length);
 
+            Chars.CopyTo(src_diff.DiffPos, dst_diff.RemovedChars, 0, src_diff.InsertedCount);
+
+            Chars.RemoveRange(src_diff.DiffPos, src_diff.InsertedCount);
+
+            Chars.InsertRange(src_diff.DiffPos, src_diff.RemovedChars);
+
+            dst_stack.Push(dst_diff);
+
+            // アプリ内で持っているテキストの選択位置を更新します。
+            SelOrigin = src_diff.DiffPos + src_diff.RemovedChars.Length;
+            SelCurrent = SelOrigin;
+
+            MyNotifyTextChanged(src_diff.DiffPos, src_diff.DiffPos + src_diff.InsertedCount, src_diff.RemovedChars.Length);
+
+            Win2DCanvas.Invalidate();
+        }
+
+        void MyNotifyTextChanged(int sel_start, int sel_end, int new_text_length) {
             CoreTextRange modifiedRange;
             modifiedRange.StartCaretPosition = sel_start;
             modifiedRange.EndCaretPosition = sel_end;
 
             CoreTextRange new_range;
-            new_range.StartCaretPosition = SelStart;
-            new_range.EndCaretPosition = SelEnd;
-            editContext.NotifyTextChanged(modifiedRange, new_text.Length, new_range);
+            new_range.StartCaretPosition = SelCurrent;
+            new_range.EndCaretPosition = SelCurrent;
+            editContext.NotifyTextChanged(modifiedRange, new_text_length, new_range);
+        }
+
+        void PushUndoStack(int sel_start, int sel_end, string new_text) {
+            TDiff diff = new TDiff(sel_start, sel_end - sel_start, new_text.Length);
+            UndoStack.Push(diff);
+            RedoStack.Clear();
+
+            Chars.CopyTo(sel_start, diff.RemovedChars, 0, diff.RemovedChars.Length);
+
+            Chars.RemoveRange(sel_start, sel_end - sel_start);
+
+            Chars.InsertRange(sel_start, (from x in new_text select new TChar(x)));
+
+            // アプリ内で持っているテキストの選択位置を更新します。
+            SelOrigin = sel_start + new_text.Length;
+            SelCurrent  = SelOrigin;
+        }
+
+        void ReplaceText(int sel_start, int sel_end, string new_text) {
+            int old_LF_cnt = GetLFCount(sel_start, sel_end);
+
+            PushUndoStack(sel_start, sel_end, new_text);
+            MyNotifyTextChanged(sel_start, sel_end, new_text.Length);
 
             int new_LF_cnt = GetLFCount(sel_start, sel_start + new_text.Length);
             LineCount += new_LF_cnt - old_LF_cnt;
@@ -605,7 +655,6 @@ namespace MyEdit {
                 }
                 break;
 
-
             case VirtualKey.V:
                 if (control_down) {
                     // Ctrl+Vの場合
@@ -617,6 +666,15 @@ namespace MyEdit {
 
                         ReplaceText(SelStart, SelEnd, text.Replace("\r\n", "\n"));
                     }
+                }
+                break;
+
+            case VirtualKey.Z:
+            case VirtualKey.Y:
+                if (control_down) {
+                    // Ctrl+Z / Ctrl+Y の場合
+
+                    UndoRedo(e.VirtualKey == VirtualKey.Z);
                 }
                 break;
             }
@@ -1018,6 +1076,21 @@ namespace MyEdit {
         public TChar(char c) {
             Chr = c;
         }
+    }
+
+    /*
+
+    */
+    public class TDiff {
+        public TDiff(int pos, int removed_cound, int inserted_count) {
+            DiffPos = pos;
+            RemovedChars = new TChar[removed_cound];
+            InsertedCount = inserted_count;
+        }
+
+        public int DiffPos;
+        public TChar[] RemovedChars;
+        public int InsertedCount;
     }
 
     /*
