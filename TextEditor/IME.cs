@@ -265,10 +265,16 @@ namespace MyEdit {
                 (ev.UnderlineType == null ? "null" : ev.UnderlineType.Value.ToString())
             );
 
-            for (int i = ev.Range.StartCaretPosition; i < ev.Range.EndCaretPosition; i++) {
+            if (ev.UnderlineType != null) {
+                // 下線がnullでない場合
 
-                if (ev.UnderlineType != null) {
-                    Chars[i].Underline = ev.UnderlineType.Value;
+                // 選択範囲の文字の下線を指定します。
+                for (int i = ev.Range.StartCaretPosition; i < ev.Range.EndCaretPosition; i++) {
+
+                    // TCharはstructなので Chars[i]=ev.UnderlineType.Value; と書くとエラーになります。
+                    TChar ch = Chars[i];
+                    ch.Underline = ev.UnderlineType.Value;
+                    Chars[i] = ch;
                 }
             }
 
@@ -303,7 +309,7 @@ namespace MyEdit {
             CoreTextEditContextを作るとこれが呼ばれます。
         */
         private void EditContext_TextRequested(CoreTextEditContext sender, CoreTextTextRequestedEventArgs ev) {
-            ev.Request.Text = CurrentLineString();
+            ev.Request.Text = StringFromRange(ev.Request.Range.StartCaretPosition, ev.Request.Range.EndCaretPosition);
 
             Debug.WriteLine("<<--- TextRequested : {0}-{1}", ev.Request.Range.StartCaretPosition, ev.Request.Range.EndCaretPosition);
         }
@@ -317,7 +323,7 @@ namespace MyEdit {
         }
 
         /*
-            アプリ内のテキストの選択位置の変更をIMEに伝えます。
+            テキストの選択位置の変更をIMEに伝えます。
         */
         void MyNotifySelectionChanged() {
             CoreTextRange new_range;
@@ -326,6 +332,20 @@ namespace MyEdit {
 
             Debug.WriteLine("--->> NotifySelectionChanged");
             editContext.NotifySelectionChanged(new_range);
+        }
+
+        /*
+            テキストの変更をIMEに伝えます。
+        */
+        void MyNotifyTextChanged(int sel_start, int sel_end, int new_text_length) {
+            CoreTextRange modifiedRange;
+            modifiedRange.StartCaretPosition = sel_start;
+            modifiedRange.EndCaretPosition = sel_end;
+
+            CoreTextRange new_range;
+            new_range.StartCaretPosition = SelCurrent;
+            new_range.EndCaretPosition = SelCurrent;
+            editContext.NotifyTextChanged(modifiedRange, new_text_length, new_range);
         }
     }
 }

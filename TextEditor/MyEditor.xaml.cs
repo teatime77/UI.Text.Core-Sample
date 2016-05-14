@@ -4,18 +4,12 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
 using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
-using Windows.UI.Xaml.Navigation;
 
 using System.Diagnostics;
 using Windows.UI;
-using Windows.UI.Xaml.Documents;
 using Windows.UI.Text.Core;
 using Microsoft.Graphics.Canvas.Text;
 using Windows.ApplicationModel.Core;
@@ -23,8 +17,6 @@ using Windows.UI.Core;
 using Windows.UI.Text;
 using Windows.System;
 using Windows.ApplicationModel.DataTransfer;
-using Windows.ApplicationModel;
-using System.Threading.Tasks;
 using Windows.UI.Input;
 using System.Collections;
 
@@ -90,6 +82,7 @@ namespace MyEdit {
         // Iカーソル
         CoreCursor IBeamCoreCursor = new CoreCursor(CoreCursorType.IBeam, 2);
 
+        // アンドゥとリドゥのスタック
         Stack<TDiff> UndoStack = new Stack<TDiff>();
         Stack<TDiff> RedoStack = new Stack<TDiff>();
 
@@ -142,20 +135,8 @@ namespace MyEdit {
         }
 
         /*
-            指定した文字列のサイズを計算します。
+            Win2DのCanvasControlの描画
         */
-        Size MeasureText(string str, CanvasTextFormat text_format) {
-            // 文字列が空白だけの場合、CanvasTextLayoutの計算が正しくない。
-            // https://github.com/Microsoft/Win2D/issues/103
-
-            // 空白を除いた文字列のサイズを計算します。
-            string str_no_space = str.Replace(" ", "");
-            Rect rc = (new CanvasTextLayout(Win2DCanvas, str_no_space, text_format, float.MaxValue, float.MaxValue)).LayoutBounds;
-
-            // 空白を除いた文字列の幅に空白の幅を加えます。
-            return new Size(rc.Width + (str.Length - str_no_space.Length) * SpaceWidth, rc.Height);
-        }
-
         private void Win2DCanvas_Draw(Microsoft.Graphics.Canvas.UI.Xaml.CanvasControl sender, Microsoft.Graphics.Canvas.UI.Xaml.CanvasDrawEventArgs args) {
             Debug.WriteLine("<<--- Draw");
 
@@ -163,32 +144,43 @@ namespace MyEdit {
             if (double.IsNaN(LineHeight)) {
                 // 最初の場合
 
-
+                // 1行の高さを計算します。
                 Rect M_rc = new CanvasTextLayout(args.DrawingSession, "M", TextFormat, float.MaxValue, float.MaxValue).LayoutBounds;
                 LineHeight = M_rc.Height;
 
+                // 空白の幅を計算します。
                 Rect sp_M_rc = new CanvasTextLayout(args.DrawingSession, " M", TextFormat, float.MaxValue, float.MaxValue).LayoutBounds;
                 SpaceWidth = sp_M_rc.Width - M_rc.Width;
             }
 
+            // ビューの幅と高さ
             float view_w = (float)Win2DCanvas.ActualWidth;
             float view_h = (float)Win2DCanvas.ActualHeight;
 
+            // ビュー内に表示する行数
             ViewLineCount = (int)(view_h / LineHeight);
 
+            // フォーカスの有無によって枠の色を変えます。
             if (OverlappedButton.FocusState == FocusState.Unfocused) {
+                // フォーカスがない場合
 
                 args.DrawingSession.DrawRectangle(0, 0, view_w, view_h, Colors.Gray, 1);
             }
             else {
+                // フォーカスがある場合
 
                 args.DrawingSession.DrawRectangle(0, 0, view_w, view_h, Colors.Blue, 1);
             }
 
+            // ビュー内の先頭行のインデックス
             int start_line_idx = (int)(EditScroll.VerticalOffset / LineHeight);
+
+            // 現在行
             int line_idx = 0;
 
+            // 文字の現在位置
             int pos;
+
             for(pos = 0; pos < Chars.Count && line_idx < start_line_idx; pos++) {
                 if(Chars[pos].Chr == LF) {
                     line_idx++;
@@ -315,40 +307,7 @@ namespace MyEdit {
             }
         }
 
-        int GetLineTop(int current_pos) {
-            int i;
 
-            for (i = current_pos - 1; 0 <= i && Chars[i].Chr != LF; i--) ;
-            return i + 1;
-        }
-
-        int GetNextLineTop(int current_pos) {
-            for (int i = current_pos; i < Chars.Count; i++) {
-                if (Chars[i].Chr == LF) {
-                    return i + 1;
-                }
-            }
-
-            return -1;
-        }
-
-        int GetLineEnd(int current_pos) {
-            int i = GetNextLineTop(current_pos);
-
-            return (i != -1 ? i - 1 : Chars.Count);
-        }
-
-        int GetLFCount(int start_pos, int end_pos) {
-            int cnt = 0;
-
-            for(int i = start_pos; i < end_pos; i++) {
-                if(Chars[i].Chr == LF) {
-                    cnt++;
-                }
-            }
-
-            return cnt;
-        }
 
         void UndoRedo(bool is_undo) {
             Stack<TDiff> src_stack;
@@ -388,17 +347,6 @@ namespace MyEdit {
             Win2DCanvas.Invalidate();
         }
 
-        void MyNotifyTextChanged(int sel_start, int sel_end, int new_text_length) {
-            CoreTextRange modifiedRange;
-            modifiedRange.StartCaretPosition = sel_start;
-            modifiedRange.EndCaretPosition = sel_end;
-
-            CoreTextRange new_range;
-            new_range.StartCaretPosition = SelCurrent;
-            new_range.EndCaretPosition = SelCurrent;
-            editContext.NotifyTextChanged(modifiedRange, new_text_length, new_range);
-        }
-
         void PushUndoStack(int sel_start, int sel_end, string new_text) {
             TDiff diff = new TDiff(sel_start, sel_end - sel_start, new_text.Length);
             UndoStack.Push(diff);
@@ -415,27 +363,6 @@ namespace MyEdit {
             SelCurrent  = SelOrigin;
         }
 
-        void ReplaceText(int sel_start, int sel_end, string new_text) {
-            int old_LF_cnt = GetLFCount(sel_start, sel_end);
-
-            PushUndoStack(sel_start, sel_end, new_text);
-            MyNotifyTextChanged(sel_start, sel_end, new_text.Length);
-
-            int new_LF_cnt = GetLFCount(sel_start, sel_start + new_text.Length);
-            LineCount += new_LF_cnt - old_LF_cnt;
-
-            if (! double.IsNaN(LineHeight)) {
-                double document_height = LineCount * LineHeight;
-
-                if(EditCanvas.Height != document_height) {
-
-                    EditCanvas.Height = document_height;
-                }
-            }
-
-            Win2DCanvas.Invalidate();
-        }
-
         void ChangeSelection(KeyEventArgs e) {
             int old_sel_current = SelCurrent;
             int new_sel_current = SelCurrent;
@@ -445,66 +372,76 @@ namespace MyEdit {
             switch (e.VirtualKey) {
             case VirtualKey.Left: // 左矢印(←)
                 if (0 < SelCurrent) {
+                    // 文書の最初でない場合
 
+                    // 新しい選択位置
                     new_sel_current = SelCurrent - 1;
                 }
                 break;
 
             case VirtualKey.Right: // 右矢印(→)
                 if (SelCurrent < Chars.Count) {
+                    // 文書の最後でない場合
 
+                    // 新しい選択位置
                     new_sel_current = SelCurrent + 1;
                 }
                 break;
 
             case VirtualKey.Up: { // 上矢印(↑)
-                    // 現在の行の先頭位置を得る。
+                    // 現在の行の先頭位置を得ます。
                     current_line_top = GetLineTop(SelCurrent);
 
                     if (current_line_top != 0) {
                         // 現在の行の先頭が文書の最初でない場合
 
-                        // 直前の行の先頭位置を得る。
+                        // 直前の行の先頭位置を得ます。
                         int prev_line_top = GetLineTop(current_line_top - 2);
 
-                        // 直前の行の文字数。
+                        // 直前の行の文字数
                         int prev_line_len = (current_line_top - 1) - prev_line_top;
 
+                        // 行の先頭からの位置
                         int col = Math.Min(prev_line_len, SelCurrent - current_line_top);
 
+                        // 新しい選択位置
                         new_sel_current = prev_line_top + col;
                     }
                 }
                 break;
 
             case VirtualKey.Down: { // 下矢印(↓)
-                    // 現在の行の先頭位置を得る。
+                    // 現在の行の先頭位置を得ます。
                     current_line_top = GetLineTop(SelCurrent);
 
-                    // 次の行の先頭位置を得る。
+                    // 次の行の先頭位置を得ます。
                     next_line_top = GetNextLineTop(SelCurrent);
 
                     if (next_line_top != -1) {
                         // 次の行がある場合
 
 
-                        // 次の次のの行の先頭位置を得る。
+                        // 次の次の行の先頭位置を得ます。
                         int next_next_line_top = GetNextLineTop(next_line_top);
 
-                        // 次の行の文字数。
+                        // 次の行の文字数
                         int next_line_len;
 
                         if (next_next_line_top == -1) {
+                            // 次の次の行がない場合(次の行が文書の最後の場合)
 
                             next_line_len = Chars.Count - next_line_top;
                         }
                         else {
+                            // 次の次の行がある場合
 
                             next_line_len = next_next_line_top - 1 - next_line_top;
                         }
 
+                        // 行の先頭からの位置
                         int col = Math.Min(next_line_len, SelCurrent - current_line_top);
 
+                        // 新しい選択位置
                         new_sel_current = next_line_top + col;
                     }
                 }
@@ -514,12 +451,13 @@ namespace MyEdit {
                 if ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0) {
                     // Controlキーが押されている場合
 
+                    // 新しい選択位置
                     new_sel_current = 0;
                 }
                 else {
                     // Controlキーが押されてない場合
 
-                    // 現在の行の先頭位置を得る。
+                    // 現在の行の先頭位置を得ます。
                     new_sel_current = GetLineTop(SelCurrent);
                 }
                 break;
@@ -528,6 +466,7 @@ namespace MyEdit {
                 if ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0) {
                     // Controlキーが押されている場合
 
+                    // 文書の最後の位置
                     new_sel_current = Chars.Count;
                 }
                 else {
@@ -577,6 +516,7 @@ namespace MyEdit {
                 break;
             }
 
+            // 新しい現在の選択位置をセットします。
             SetSelection(new_sel_current);
         }
 
@@ -684,41 +624,6 @@ namespace MyEdit {
             Debug.WriteLine("<<--- KeyUp");
         }
 
-        int TextPositionFromPointer(PointerPoint pointer) {
-            Point canvas_pos = Win2DCanvas.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
-
-            Point pt = new Point(pointer.Position.X - canvas_pos.X, pointer.Position.Y - canvas_pos.Y);
-
-            foreach (TShape shape in DrawList) {
-                if (shape.Bounds.Contains(pt)) {
-
-                    int phrase_pos;
-                    StringWriter phrase_sw = new StringWriter();
-                    double prev_width = 0;
-                    for (phrase_pos = shape.StartPos; phrase_pos <= shape.EndPos; phrase_pos++) {
-
-                        phrase_sw.Write(Chars[phrase_pos].Chr);
-
-                        Size sz = MeasureText(phrase_sw.ToString(), TextFormat);
-
-                        // 現在の文字の幅
-                        double this_char_width = sz.Width - prev_width;
-
-                        // 現在の文字の左端より文字幅の20%ぐらい左を、矩形の左端にします。
-                        Rect sub_phrase_rc = new Rect(shape.Bounds.X - this_char_width * 0.2, shape.Bounds.Y, sz.Width, sz.Height);
-                        if (sub_phrase_rc.Contains(pt)) {
-                            // 矩形に含まれる場合
-
-                            return phrase_pos;
-                        }
-
-                        prev_width = sz.Width;
-                    }
-                }
-            }
-
-            return -1;
-        }
 
         void HandlePointerEvent(EEvent event_type, PointerEventArgs e) {
             if (PointerLoop != null) {
@@ -980,8 +885,122 @@ namespace MyEdit {
             Debug.WriteLine("<<--- PointerWheelChanged {0}", args.CurrentPoint.Properties.MouseWheelDelta);
         }
 
+        private void EditScroll_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e) {
+            Debug.WriteLine("<<--- ViewChanged");
+            Win2DCanvas.Invalidate();
+        }
+
+
+        private void OverlappedButton_PointerEntered(object sender, PointerRoutedEventArgs e) {
+            CoreApplication.GetCurrentView().CoreWindow.PointerCursor = IBeamCoreCursor;
+
+        }
+
+        private void OverlappedButton_PointerExited(object sender, PointerRoutedEventArgs e) {
+            CoreApplication.GetCurrentView().CoreWindow.PointerCursor   = ArrowCoreCursor;
+
+        }
+
+        /*
+            行の先頭位置を返します。
+        */
+        int GetLineTop(int current_pos) {
+            int i;
+
+            for (i = current_pos - 1; 0 <= i && Chars[i].Chr != LF; i--) ;
+            return i + 1;
+        }
+
+        /*
+            次の行の先頭位置を返します。
+        */
+        int GetNextLineTop(int current_pos) {
+            for (int i = current_pos; i < Chars.Count; i++) {
+                if (Chars[i].Chr == LF) {
+                    return i + 1;
+                }
+            }
+
+            return -1;
+        }
+
+        /*
+            行の最終位置を返します。
+            行の最終位置は改行文字の位置または文書の最後の位置です。
+        */
+        int GetLineEnd(int current_pos) {
+            int i = GetNextLineTop(current_pos);
+
+            return (i != -1 ? i - 1 : Chars.Count);
+        }
+
+        /*
+            指定した範囲にある改行文字の個数を返します。
+        */
+        int GetLFCount(int start_pos, int end_pos) {
+            return (from x in Chars.GetRange(start_pos, Math.Min(Chars.Count, end_pos) - start_pos) where x.Chr == LF select x).Count();
+        }
+
+        /*
+            文字列のサイズを計算します。
+        */
+        Size MeasureText(string str, CanvasTextFormat text_format) {
+            // 文字列が空白だけの場合、CanvasTextLayoutの計算が正しくない。
+            // https://github.com/Microsoft/Win2D/issues/103
+
+            // 空白を除いた文字列のサイズを計算します。
+            string str_no_space = str.Replace(" ", "");
+            Rect rc = (new CanvasTextLayout(Win2DCanvas, str_no_space, text_format, float.MaxValue, float.MaxValue)).LayoutBounds;
+
+            // 空白を除いた文字列の幅に空白の幅を加えます。
+            return new Size(rc.Width + (str.Length - str_no_space.Length) * SpaceWidth, rc.Height);
+        }
+
+        /*
+            ポインターの座標からテキストの位置を得ます。
+        */
+        int TextPositionFromPointer(PointerPoint pointer) {
+            Point canvas_pos = Win2DCanvas.TransformToVisual(Window.Current.Content).TransformPoint(new Point(0, 0));
+
+            Point pt = new Point(pointer.Position.X - canvas_pos.X, pointer.Position.Y - canvas_pos.Y);
+
+            foreach (TShape shape in DrawList) {
+                if (shape.Bounds.Contains(pt)) {
+
+                    int phrase_pos;
+                    StringWriter phrase_sw = new StringWriter();
+                    double prev_width = 0;
+                    for (phrase_pos = shape.StartPos; phrase_pos <= shape.EndPos; phrase_pos++) {
+
+                        phrase_sw.Write(Chars[phrase_pos].Chr);
+
+                        Size sz = MeasureText(phrase_sw.ToString(), TextFormat);
+
+                        // 現在の文字の幅
+                        double this_char_width = sz.Width - prev_width;
+
+                        // 現在の文字の左端より文字幅の20%ぐらい左を、矩形の左端にします。
+                        Rect sub_phrase_rc = new Rect(shape.Bounds.X - this_char_width * 0.2, shape.Bounds.Y, sz.Width, sz.Height);
+                        if (sub_phrase_rc.Contains(pt)) {
+                            // 矩形に含まれる場合
+
+                            return phrase_pos;
+                        }
+
+                        prev_width = sz.Width;
+                    }
+                }
+            }
+
+            return -1;
+        }
+
+        /*
+            現在の選択位置をセットします。
+            シフトキーが押されてない場合は選択を始めた位置を現在の選択位置にします。
+        */
         void SetSelection(int pos) {
-            if(pos != -1 && pos != SelCurrent) {
+            if (pos != -1 && pos != SelCurrent) {
                 // 選択位置が変わった場合
 
                 SelCurrent = pos;
@@ -997,28 +1016,39 @@ namespace MyEdit {
             }
         }
 
-        private void EditScroll_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e) {
-            Debug.WriteLine("<<--- ViewChanged");
+        /*
+            指定した範囲のテキストを返します。
+        */
+        string StringFromRange(int start_pos, int end_pos) {
+            return new string((from c in Chars.GetRange(start_pos, Math.Min(Chars.Count, end_pos) - start_pos) select c.Chr).ToArray());
+        }
+
+        /*
+            選択した範囲のテキストを別のテキストに置換します。
+        */
+        void ReplaceText(int sel_start, int sel_end, string new_text) {
+            int old_LF_cnt = GetLFCount(sel_start, sel_end);
+
+            PushUndoStack(sel_start, sel_end, new_text);
+            MyNotifyTextChanged(sel_start, sel_end, new_text.Length);
+
+            int new_LF_cnt = GetLFCount(sel_start, sel_start + new_text.Length);
+            LineCount += new_LF_cnt - old_LF_cnt;
+
+            if (!double.IsNaN(LineHeight)) {
+                double document_height = LineCount * LineHeight;
+
+                if (EditCanvas.Height != document_height) {
+
+                    EditCanvas.Height = document_height;
+                }
+            }
+
             Win2DCanvas.Invalidate();
         }
+        /*
 
-        string StringFromRange(int start_pos, int end_pos) {
-            return new string((from c in Chars.GetRange(start_pos, end_pos - start_pos) select c.Chr).ToArray());
-        }
-
-        string CurrentLineString() {
-            return new string((from c in Chars select c.Chr).ToArray());
-        }
-
-        private void OverlappedButton_PointerEntered(object sender, PointerRoutedEventArgs e) {
-            CoreApplication.GetCurrentView().CoreWindow.PointerCursor = IBeamCoreCursor;
-
-        }
-
-        private void OverlappedButton_PointerExited(object sender, PointerRoutedEventArgs e) {
-            CoreApplication.GetCurrentView().CoreWindow.PointerCursor   = ArrowCoreCursor;
-
-        }
+        */
     }
 
     public enum EEvent {
@@ -1063,7 +1093,7 @@ namespace MyEdit {
         本当はstructの方がよいですが、structだと以下のようなことができないのでclassにしています。
             Chars[i].Underline = 代入値;
     */
-    public class TChar {
+    public struct TChar {
         // 文字
         public char Chr;
 
@@ -1075,11 +1105,12 @@ namespace MyEdit {
         */
         public TChar(char c) {
             Chr = c;
+            Underline = UnderlineType.Undefined;
         }
     }
 
     /*
-
+        テキストの変更情報
     */
     public class TDiff {
         public TDiff(int pos, int removed_cound, int inserted_count) {
@@ -1088,8 +1119,13 @@ namespace MyEdit {
             InsertedCount = inserted_count;
         }
 
+        // 変更の開始位置
         public int DiffPos;
+
+        // 削除した文字列
         public TChar[] RemovedChars;
+
+        // 新たに挿入した文字列の長さ
         public int InsertedCount;
     }
 
