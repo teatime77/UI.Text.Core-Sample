@@ -1,28 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
+﻿using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.UI.Xaml;
-using Windows.UI.Xaml.Controls;
-using Windows.UI.Xaml.Controls.Primitives;
-using Windows.UI.Xaml.Data;
-using Windows.UI.Xaml.Input;
-using Windows.UI.Xaml.Media;
-using Windows.UI.Xaml.Navigation;
 
 using System.Diagnostics;
-using Windows.UI;
-using Windows.UI.Xaml.Documents;
 using Windows.UI.Text.Core;
-using Microsoft.Graphics.Canvas.Text;
 using Windows.ApplicationModel.Core;
-using Windows.UI.Core;
-using Windows.UI.Text;
-using Windows.System;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.ApplicationModel;
 using System.Threading.Tasks;
 
@@ -51,7 +34,7 @@ namespace MyEdit {
                 // 初めての場合
 
                 // 少し待たないと「漢字」キーが効かない。
-                await Task.Delay(1000);
+                await Task.Delay(500);
 
                 // CoreTextServicesManagerを作ります。
                 Debug.WriteLine("--->> GetForCurrentView");
@@ -65,6 +48,7 @@ namespace MyEdit {
             // editContextを作り直します。
             UpdateEditContext();
 
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
 
@@ -87,6 +71,7 @@ namespace MyEdit {
                 editContext.NotifyFocusLeave();
             }
 
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
         /*
@@ -152,8 +137,10 @@ namespace MyEdit {
                 MeasureText(ev.Text, TextFormat)
             );
 
+            // テキストを変更して、変更情報をアンドゥのスタックにプッシュします。
             PushUndoStack(ev.Range.StartCaretPosition, ev.Range.EndCaretPosition, ev.Text);
 
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
 
@@ -278,6 +265,7 @@ namespace MyEdit {
                 }
             }
 
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
 

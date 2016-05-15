@@ -65,7 +65,7 @@ namespace MyEdit {
         Point ViewPadding = new Point(5, 5);
 
         // マウスのイベントハンドラのコルーチン
-        IEnumerator PointerLoop;
+        IEnumerator PointerEventLoop;
 
         // マウスのイベントハンドラで使うタイマー 
         DispatcherTimer PointerTimer;
@@ -111,6 +111,7 @@ namespace MyEdit {
             this.InitializeComponent();
             Debug.WriteLine("<<--- Initialize");
 
+            // フォントを変更する場合は以下のコメントをはずしてください。
             //TextFormat.FontSize = 48;
             //TextFormat.FontFamily = "ＭＳ ゴシック";
         }
@@ -124,7 +125,6 @@ namespace MyEdit {
 
             // イベントハンドラを登録します。
             wnd.KeyDown             += CoreWindow_KeyDown;
-            wnd.KeyUp               += CoreWindow_KeyUp;
             wnd.PointerPressed      += CoreWindow_PointerPressed;
             wnd.PointerMoved        += CoreWindow_PointerMoved;
             wnd.PointerReleased     += CoreWindow_PointerReleased;
@@ -307,55 +307,84 @@ namespace MyEdit {
             }
         }
 
-
-
+        /*
+            アンドゥとリドゥ
+        */
         void UndoRedo(bool is_undo) {
             Stack<TDiff> src_stack;
             Stack<TDiff> dst_stack;
 
+            // アンドゥとリドゥは操作対象のスタックが違うだけです。
             if (is_undo) {
+                // アンドゥの場合
+
+                // アンドゥのスタックからポップして、リドゥのスタックにプッシュします。
                 src_stack = UndoStack;
                 dst_stack = RedoStack;
             }
             else {
+                // リドゥの場合
 
+                // リドゥのスタックからポップして、アンドゥのスタックにプッシュします。
                 src_stack = RedoStack;
                 dst_stack = UndoStack;
             }
 
             if (src_stack.Count == 0) {
+                // ポップするスタックが空の場合
+
                 return;
             }
 
+            // 変更情報をポップします。
             TDiff src_diff = src_stack.Pop();
+
+            // 今回の変更情報を作ります。
             TDiff dst_diff = new TDiff(src_diff.DiffPos, src_diff.InsertedCount, src_diff.RemovedChars.Length);
 
+            // 削除する文字列をコピーします。
             Chars.CopyTo(src_diff.DiffPos, dst_diff.RemovedChars, 0, src_diff.InsertedCount);
 
+            // 文字列を削除します。
             Chars.RemoveRange(src_diff.DiffPos, src_diff.InsertedCount);
 
+            // 新しい文字列を挿入します。
             Chars.InsertRange(src_diff.DiffPos, src_diff.RemovedChars);
 
+            // 今回の変更情報をプッシュします。
             dst_stack.Push(dst_diff);
 
             // アプリ内で持っているテキストの選択位置を更新します。
             SelOrigin = src_diff.DiffPos + src_diff.RemovedChars.Length;
             SelCurrent = SelOrigin;
 
+            // テキストの変更をIMEに伝えます。
             MyNotifyTextChanged(src_diff.DiffPos, src_diff.DiffPos + src_diff.InsertedCount, src_diff.RemovedChars.Length);
 
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
 
+        /*
+            テキストを変更して、変更情報をアンドゥのスタックにプッシュします。
+        */
         void PushUndoStack(int sel_start, int sel_end, string new_text) {
+            // 変更情報を作ります。
             TDiff diff = new TDiff(sel_start, sel_end - sel_start, new_text.Length);
+
+            // 変更情報をアンドゥのスタックにプッシュします。
             UndoStack.Push(diff);
+
+            // リドゥのスタックはクリアします。
             RedoStack.Clear();
 
+            // 削除する文字列をコピーします。
             Chars.CopyTo(sel_start, diff.RemovedChars, 0, diff.RemovedChars.Length);
 
+            // 文字列を削除します。
             Chars.RemoveRange(sel_start, sel_end - sel_start);
 
+            // 新しい文字列を挿入します。
             Chars.InsertRange(sel_start, (from x in new_text select new TChar(x)));
 
             // アプリ内で持っているテキストの選択位置を更新します。
@@ -363,6 +392,9 @@ namespace MyEdit {
             SelCurrent  = SelOrigin;
         }
 
+        /*
+            テキストの選択位置を変更します。
+        */
         void ChangeSelection(KeyEventArgs e) {
             int old_sel_current = SelCurrent;
             int new_sel_current = SelCurrent;
@@ -472,7 +504,7 @@ namespace MyEdit {
                 else {
                     // Controlキーが押されてない場合
 
-                    // 現在の行の最終位置を得る。
+                    // 現在の行の最終位置を得ます。
                     new_sel_current = GetLineEnd(SelCurrent);
                 }               
                 break;
@@ -520,6 +552,9 @@ namespace MyEdit {
             SetSelection(new_sel_current);
         }
 
+        /*
+            キーが押された。
+        */
         private async void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs e) {
             bool control_down = ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) != 0);
 
@@ -538,6 +573,8 @@ namespace MyEdit {
             case VirtualKey.End:
             case VirtualKey.PageUp:
             case VirtualKey.PageDown:
+
+                // テキストの選択位置を変更します。
                 ChangeSelection(e);
                 break;
             }
@@ -547,10 +584,12 @@ namespace MyEdit {
 
                     if (SelOrigin != SelCurrent) {
 
+                        // 選択した範囲のテキストを別のテキストに置換します。
                         ReplaceText(SelStart, SelEnd, "");
                     }
                     else if (0 < SelCurrent) {
 
+                        // 選択した範囲のテキストを別のテキストに置換します。
                         ReplaceText(SelCurrent - 1, SelCurrent, "");
                     }
                 }
@@ -560,16 +599,20 @@ namespace MyEdit {
 
                     if (SelOrigin != SelCurrent) {
 
+                        // 選択した範囲のテキストを別のテキストに置換します。
                         ReplaceText(SelStart, SelEnd, "");
                     }
                     else if (SelCurrent < Chars.Count) {
 
+                        // 選択した範囲のテキストを別のテキストに置換します。
                         ReplaceText(SelCurrent, SelCurrent + 1, "");
                     }
                 }
                 break;
 
             case VirtualKey.Enter: {
+
+                    // 選択した範囲のテキストを別のテキストに置換します。
                     ReplaceText(SelStart, SelEnd, "\n");
                 }
                 break;
@@ -580,17 +623,15 @@ namespace MyEdit {
 
                     // https://msdn.microsoft.com/en-us/windows/uwp/app-to-app/copy-and-paste
 
-                    int sel_start = Math.Min(SelOrigin, SelCurrent);
-                    int sel_end = Math.Max(SelOrigin, SelCurrent);
+                    // 選択範囲の文字列
+                    string text = new string( (from x in Chars.GetRange(SelStart, SelEnd - SelStart) select x.Chr).ToArray() );
 
-                    char[] vc = new char[sel_end - sel_start];
-                    for(int i = 0; i < vc.Length; i++) {
-                        vc[i] = Chars[sel_start + i].Chr;
-                    }
+                    // LFをCRLFに変換した文字列
+                    string text_CRLF = text.Replace("\n", "\r\n");
 
                     DataPackage dataPackage = new DataPackage();
                     dataPackage.RequestedOperation = DataPackageOperation.Copy;
-                    dataPackage.SetText(new string(vc).Replace("\n", "\r\n"));
+                    dataPackage.SetText(text_CRLF);
                     Clipboard.SetContent(dataPackage);
                 }
                 break;
@@ -604,6 +645,7 @@ namespace MyEdit {
 
                         string text = await dataPackageView.GetTextAsync();
 
+                        // 選択した範囲のテキストを別のテキストに置換します。
                         ReplaceText(SelStart, SelEnd, text.Replace("\r\n", "\n"));
                     }
                 }
@@ -614,270 +656,321 @@ namespace MyEdit {
                 if (control_down) {
                     // Ctrl+Z / Ctrl+Y の場合
 
+                    // アンドゥ / リドゥ
                     UndoRedo(e.VirtualKey == VirtualKey.Z);
                 }
                 break;
             }
         }
 
-        private void CoreWindow_KeyUp(CoreWindow sender, KeyEventArgs e) {
-            Debug.WriteLine("<<--- KeyUp");
-        }
+        /*
+            ポインタのイベントハンドラのコルーチンを継続します。
+        */
+        void ContinuePointerEventLoop(EEvent event_type, PointerEventArgs e) {
+            if (PointerEventLoop != null) {
+                //  ポインタのイベントハンドラの実行中の場合
 
-
-        void HandlePointerEvent(EEvent event_type, PointerEventArgs e) {
-            if (PointerLoop != null) {
+                // イベントの型とイベントをセットします。
                 PointerEventType = event_type;
                 CurrentPointerEvent = e;
-                PointerLoop.MoveNext();
+
+                // コルーチンを継続します。
+                PointerEventLoop.MoveNext();
             }
         }
 
+        /*
+            ポインタが押された。
+        */
         private void CoreWindow_PointerPressed(CoreWindow sender, PointerEventArgs e) {
             if(editContext == null) {
+                // IMEがまだ初期化されてない場合
+
                 return;
             }
 
-            if(PointerLoop == null) {
+            if(PointerEventLoop == null) {
+                // ポインタのイベントハンドラがnullの場合
 
-                PointerLoop = PointerHandler(e);
+                PointerEventLoop = PointerHandler(e);
             }
 
-            HandlePointerEvent(EEvent.PointerPressed, e);
+            // ポインタのイベントハンドラのコルーチンを継続します。
+            ContinuePointerEventLoop(EEvent.PointerPressed, e);
         }
 
+        /*
+            ポインタが動いた。
+        */
         private void CoreWindow_PointerMoved(CoreWindow sender, PointerEventArgs e) {
-            HandlePointerEvent(EEvent.PointerMoved, e);
+            // ポインタのイベントハンドラのコルーチンを継続します。
+            ContinuePointerEventLoop(EEvent.PointerMoved, e);
         }
 
+        /*
+            ポインタが離された。
+        */
         private void CoreWindow_PointerReleased(CoreWindow sender, PointerEventArgs e) {
-            HandlePointerEvent(EEvent.PointerReleased, e);
+            // ポインタのイベントハンドラのコルーチンを継続します。
+            ContinuePointerEventLoop(EEvent.PointerReleased, e);
             Debug.WriteLine("<<--- CoreWindow PointerReleased");
         }
 
+        /*
+            ポインタの処理のタイマー イベント
+        */
         private void PointerTimer_Tick(object sender, object e) {
             Debug.WriteLine("<<--- PointerTimer");
             PointerTimer.Stop();
 
-            HandlePointerEvent(EEvent.Timeout, null);
+            // ポインタのイベントハンドラのコルーチンを継続します。
+            ContinuePointerEventLoop(EEvent.Timeout, null);
         }
 
-        public IEnumerator PointerHandler(PointerEventArgs e) {
-            EEvent event_type = EEvent.Undefined;
+        /*
+            選択部分のテキストをドラッグ&ドロップします。
+        */
+        public IEnumerator DragDropHandler(PointerEventArgs e) {
 
-            Debug.Assert(PointerEventType == EEvent.PointerPressed);
+            // マウスカーソルを矢印に変えます。
+            CoreApplication.GetCurrentView().CoreWindow.PointerCursor = ArrowCoreCursor;
 
-            int start_pos = TextPositionFromPointer(CurrentPointerEvent.CurrentPoint);
-
-            PointerTimer.Interval = TimeSpan.FromMilliseconds(500);
-            PointerTimer.Start();
-            yield return 0;
-
-            while (event_type == EEvent.Undefined) {
-
+            while (true) {
                 switch (PointerEventType) {
-                case EEvent.Timeout:
-                    // 長押しの場合
-
-                    event_type = EEvent.LongPress;
-                    break;
                 case EEvent.PointerMoved:
                     // ドラッグの場合
 
-                    event_type = EEvent.Drag;
+                    // ポインターの座標からテキストの位置を得ます。
+                    int drag_pos = TextPositionFromPointer(CurrentPointerEvent.CurrentPoint);
+                    if (drag_pos != -1 && !(SelStart <= drag_pos && drag_pos < SelEnd)) {
+                        // ポインターの下に選択部分以外のテキストがある場合
+
+                        // ドロップ位置をセットします。ドロップ先に挿入カーソルを描画するのに使われます。
+                        DropPos = drag_pos;
+                        Debug.WriteLine("ドロップ中 {0}", DropPos);
+                    }
+                    else {
+
+                        DropPos = -1;
+                    }
+
+                    // 再描画します。
+                    Win2DCanvas.Invalidate();
+                    yield return 0;
+
                     break;
 
                 case EEvent.PointerReleased:
-                    // クリックの場合
+                    // リリースの場合
 
-                    PointerTimer.Interval = TimeSpan.FromMilliseconds(200);
-                    PointerTimer.Start();
-                    yield return 0;
+                    if (DropPos != -1) {
 
-                    while (event_type == EEvent.Undefined) {
-                        switch (PointerEventType) {
-                        case EEvent.Timeout:
-                            // ダブルクリックでない場合
+                        // 選択部分の文字列
+                        string sel_str = new string((from c in Chars.Skip(SelStart) select c.Chr).Take(SelEnd - SelStart).ToArray());
 
-                            Debug.WriteLine("クリック");
-                            SetSelection(start_pos);
-                            PointerLoop = null;
-                            yield break;
+                        if ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) == 0) {
+                            // Ctrlキーが押されてない場合
 
-                        case EEvent.PointerPressed:
-                            // ダブルクリックの場合
+                            // 選択位置の後ろにドロップ位置があるならtrue
+                            bool drop_after_selection = (SelStart < DropPos);
 
-                            Debug.WriteLine("ダブルクリック");
-                            if (start_pos != -1) {
-                                // マウス位置にテキストがある場合
+                            // 選択されたテキストを削除します。
+                            ReplaceText(SelStart, SelEnd, "");
 
-                                // 語句の始まりと終わりを探します。
-                                // 語句の文字はIsLetterOrDigitか'_'とします。
+                            if (drop_after_selection) {
+                                // 選択位置の後ろにドロップ位置があるの場合
 
-                                // 語句の始まりを探します。
-                                int phrase_start = start_pos;
-                                for (; 0 <= phrase_start && (Char.IsLetterOrDigit(Chars[phrase_start].Chr) || Chars[phrase_start].Chr == '_'); phrase_start--) ;
-                                phrase_start++;
-
-                                // 語句の終わりを探します。
-                                int phrase_end = start_pos;
-                                for (; phrase_end < Chars.Count && (Char.IsLetterOrDigit(Chars[phrase_end].Chr) || Chars[phrase_end].Chr == '_'); phrase_end++) ;
-
-                                // 語句の始まりと終わりを選択します
-                                SelOrigin = phrase_start;
-                                SelCurrent = phrase_end;
-
-                                MyNotifySelectionChanged();
-                                Win2DCanvas.Invalidate();
+                                // ドロップ位置を選択テキストの長さだけ引きます。
+                                DropPos -= sel_str.Length;
                             }
-
-                            PointerLoop = null;
-                            yield break;
-
-                        default:
-                            yield return 0;
-                            break;
                         }
+
+                        // ドロップ位置に選択テキストを挿入します。
+                        ReplaceText(DropPos, DropPos, sel_str);
+
+                        DropPos = -1;
                     }
-                    break;
+
+                    // マウスカーソルをIカーソルに戻します。
+                    CoreApplication.GetCurrentView().CoreWindow.PointerCursor = IBeamCoreCursor;
+
+                    // 再描画します。
+                    Win2DCanvas.Invalidate();
+                    yield break;
 
                 default:
                     yield return 0;
                     break;
                 }
             }
-
-            if(event_type == EEvent.LongPress) {
-                // 長押しの場合
-
-                if (SelCurrent != SelOrigin) {
-                    // テキストを選択している場合
-
-                    // マウスの真下のテキストの位置を得ます。
-                    int pos = TextPositionFromPointer(e.CurrentPoint);
-
-                    if (SelStart <= pos && pos < SelEnd) {
-                        // 選択されているテキストを長押しした場合
-
-                        // マウスカーソルを矢印に変えます。
-                        CoreApplication.GetCurrentView().CoreWindow.PointerCursor = ArrowCoreCursor;
-
-                        while (true) {
-                            switch (PointerEventType) {
-                            case EEvent.PointerMoved:
-                                // ドラッグの場合
-
-                                int drag_pos = TextPositionFromPointer(CurrentPointerEvent.CurrentPoint);
-                                if (drag_pos != -1 && !(SelStart <= drag_pos && drag_pos < SelEnd)) {
-
-                                    DropPos = drag_pos;
-                                    Debug.WriteLine("ドロップ中 {0}", DropPos);
-                                }
-                                else {
-
-                                    DropPos = -1;
-                                }
-
-                                Win2DCanvas.Invalidate();
-                                yield return 0;
-
-                                break;
-
-                            case EEvent.PointerReleased:
-                                // リリースの場合
-
-                                if (DropPos != -1) {
-
-                                    string sel_str = new string((from c in Chars.Skip(SelStart) select c.Chr).Take(SelEnd - SelStart).ToArray());
-
-                                    if ((Window.Current.CoreWindow.GetKeyState(VirtualKey.Control) & CoreVirtualKeyStates.Down) == 0) {
-                                        // Ctrlキーが押されてない場合
-
-                                        bool drop_after_selection = (SelStart < DropPos);
-
-                                        // 選択されたテキストを削除します。
-                                        ReplaceText(SelStart, SelEnd, "");
-
-                                        if (drop_after_selection) {
-                                            // ドロップ位置が選択位置より後ろの場合
-
-                                            // ドロップ位置を選択テキストの長さだけ引きます。
-                                            DropPos -= sel_str.Length;
-                                        }
-                                    }
-
-                                    // ドロップ位置に選択テキストを挿入します。
-                                    ReplaceText(DropPos, DropPos, sel_str);
-
-                                    DropPos = -1;
-                                }
-
-                                // マウスカーソルをIカーソルに戻します。
-                                CoreApplication.GetCurrentView().CoreWindow.PointerCursor = IBeamCoreCursor;
-
-                                Win2DCanvas.Invalidate();
-                                PointerLoop = null;
-                                yield break;
-
-                            default:
-                                yield return 0;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (event_type == EEvent.LongPress || event_type == EEvent.Drag) {
-                // 長押しかドラッグの場合
-
-                if (start_pos == -1) {
-
-                    PointerLoop = null;
-                    yield break;
-                }
-
-                SelOrigin = start_pos;
-                SelCurrent = start_pos;
-                Debug.WriteLine("ドラッグの選択の始め {0}", start_pos);
-
-                Win2DCanvas.Invalidate();
-                yield return 0;
-
-                while (true) {
-                    switch (PointerEventType) {
-                    case EEvent.PointerMoved:
-                        // ドラッグの場合
-
-                        int pos = TextPositionFromPointer(CurrentPointerEvent.CurrentPoint);
-                        if (pos != -1) {
-
-                            SelCurrent = pos;
-                            Debug.WriteLine("ドラッグして選択 {0}", pos);
-
-                            Win2DCanvas.Invalidate();
-                        }
-
-                        yield return 0;
-                        break;
-
-                    case EEvent.PointerReleased:
-                        // リリースの場合
-
-                        MyNotifySelectionChanged();
-                        PointerLoop = null;
-                        yield break;
-
-                    default:
-                        yield return 0;
-                        break;
-                    }
-                }
-            }
-
-            PointerLoop = null;
         }
 
+        /*
+            ドラッグしてテキストを選択します。
+        */
+        public IEnumerator SelectByDrag(int start_pos) {
+            Debug.WriteLine("ドラッグの選択の始め {0}", start_pos);
+
+            // 再描画します。
+            Win2DCanvas.Invalidate();
+            yield return 0;
+
+            while (true) {
+                switch (PointerEventType) {
+                case EEvent.PointerMoved:
+                    // ドラッグの場合
+
+                    // ポインターの座標からテキストの位置を得ます。
+                    int pos = TextPositionFromPointer(CurrentPointerEvent.CurrentPoint);
+                    if (pos != -1) {
+                        // ポインターの下にテキストがある場合
+
+                        SelCurrent = pos;
+                        Debug.WriteLine("ドラッグして選択 {0}", pos);
+
+                        // 再描画します。
+                        Win2DCanvas.Invalidate();
+                    }
+                    break;
+
+                case EEvent.PointerReleased:
+                    // リリースの場合
+
+                    // テキストの選択位置の変更をIMEに伝えます。
+                    MyNotifySelectionChanged();
+
+                    yield break;
+                }
+                yield return 0;
+            }
+        }
+
+        /*
+            ダブルクリックで単語を選択します。
+            単語の文字はIsLetterOrDigitか'_'とします。
+        */
+        public void SelectByDoubleClick(int start_pos) {
+            Debug.WriteLine("ダブルクリック");
+            // マウス位置にテキストがある場合
+
+            // 単語の始まりを探します。
+            int phrase_start = start_pos;
+            for (; 0 <= phrase_start && (Char.IsLetterOrDigit(Chars[phrase_start].Chr) || Chars[phrase_start].Chr == '_'); phrase_start--) ;
+            phrase_start++;
+
+            // 単語の終わりを探します。
+            int phrase_end = start_pos;
+            for (; phrase_end < Chars.Count && (Char.IsLetterOrDigit(Chars[phrase_end].Chr) || Chars[phrase_end].Chr == '_'); phrase_end++) ;
+
+            // 単語の始まりと終わりを選択します
+            SelOrigin = phrase_start;
+            SelCurrent = phrase_end;
+
+            // テキストの選択位置の変更をIMEに伝えます。
+            MyNotifySelectionChanged();
+
+            // 再描画します。
+            Win2DCanvas.Invalidate();
+        }
+
+        /*
+            ポインターのイベントハンドラのコルーチン
+        */
+        public IEnumerator PointerHandler(PointerEventArgs e) {
+            Debug.Assert(PointerEventType == EEvent.PointerPressed);
+
+            // ポインターの座標からテキストの位置を得ます。
+            int start_pos = TextPositionFromPointer(CurrentPointerEvent.CurrentPoint);
+
+            if (start_pos == -1) {
+                // ポインターの下にテキストがない場合
+
+                goto cleanup;
+            }
+
+            // 長押しの判別のためにタイマーを使います。
+            PointerTimer.Interval = TimeSpan.FromMilliseconds(500);
+            PointerTimer.Start();
+            yield return 0;
+
+            while (true) {
+
+                switch (PointerEventType) {
+                case EEvent.Timeout:
+                    // 長押しの場合
+
+                    if (SelStart < start_pos && start_pos < SelEnd) {
+                        // 選択部分を長押しした場合
+
+                        for(IEnumerator drag_drop = DragDropHandler(e); drag_drop.MoveNext();) {
+                            yield return 0;
+                        }
+
+                        goto cleanup;
+                    }
+                    else {
+                        // 選択部分以外を長押しした場合
+
+                        goto select_by_drag_sub;
+                    }
+
+                case EEvent.PointerMoved:
+                    // ドラッグの場合
+
+                    goto select_by_drag_sub;
+
+                case EEvent.PointerReleased:
+                    // クリックの場合
+
+                    // ダブルクリックの判別のためにタイマーを使います。
+                    PointerTimer.Interval = TimeSpan.FromMilliseconds(200);
+                    PointerTimer.Start();
+                    yield return 0;
+
+                    while (true) {
+                        switch (PointerEventType) {
+                        case EEvent.Timeout:
+                            // ダブルクリックでない場合
+
+                            Debug.WriteLine("クリック");
+                            SetSelection(start_pos);
+
+                            goto cleanup;
+
+                        case EEvent.PointerPressed:
+                            // ダブルクリックの場合
+
+                            // ダブルクリックで単語を選択します。
+                            SelectByDoubleClick(start_pos);
+
+                            goto cleanup;
+                        }
+                        yield return 0;
+                    }
+                }
+                yield return 0;
+            }
+
+            //---------------------------------------------------------------------- ドラッグしてテキストを選択
+            select_by_drag_sub:
+
+            // 現在の選択位置をセットします。
+            SetSelection(start_pos);
+
+            // ドラッグしてテキストを選択します。
+            for (IEnumerator select_by_drag = SelectByDrag(start_pos); select_by_drag.MoveNext();) {
+                yield return 0;
+            }
+
+            //---------------------------------------------------------------------- 終了処理
+            cleanup:
+            PointerTimer.Stop();
+            PointerEventLoop = null;
+        }
+
+        /*
+            マウスホイールが回った。
+        */
         private void CoreWindow_PointerWheelChanged(CoreWindow sender, PointerEventArgs args) {
             int scroll_direction = (0 < args.CurrentPoint.Properties.MouseWheelDelta ? -1 : 1);
             int offset = (int)Math.Round(EditScroll.VerticalOffset / LineHeight);
@@ -885,17 +978,28 @@ namespace MyEdit {
             Debug.WriteLine("<<--- PointerWheelChanged {0}", args.CurrentPoint.Properties.MouseWheelDelta);
         }
 
+        /*
+            ScrollViewerがスクロールした。
+        */
         private void EditScroll_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e) {
             Debug.WriteLine("<<--- ViewChanged");
+
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
 
 
+        /*
+            ポインタが入ってきた。
+        */
         private void OverlappedButton_PointerEntered(object sender, PointerRoutedEventArgs e) {
             CoreApplication.GetCurrentView().CoreWindow.PointerCursor = IBeamCoreCursor;
 
         }
 
+        /*
+            ポインタが出て行った。
+        */
         private void OverlappedButton_PointerExited(object sender, PointerRoutedEventArgs e) {
             CoreApplication.GetCurrentView().CoreWindow.PointerCursor   = ArrowCoreCursor;
 
@@ -1011,7 +1115,10 @@ namespace MyEdit {
                     SelOrigin = SelCurrent;
                 }
 
+                // テキストの選択位置の変更をIMEに伝えます。
                 MyNotifySelectionChanged();
+
+                // 再描画します。
                 Win2DCanvas.Invalidate();
             }
         }
@@ -1029,7 +1136,10 @@ namespace MyEdit {
         void ReplaceText(int sel_start, int sel_end, string new_text) {
             int old_LF_cnt = GetLFCount(sel_start, sel_end);
 
+            // テキストを変更して、変更情報をアンドゥのスタックにプッシュします。
             PushUndoStack(sel_start, sel_end, new_text);
+
+            // テキストの変更をIMEに伝えます。
             MyNotifyTextChanged(sel_start, sel_end, new_text.Length);
 
             int new_LF_cnt = GetLFCount(sel_start, sel_start + new_text.Length);
@@ -1044,48 +1154,20 @@ namespace MyEdit {
                 }
             }
 
+            // 再描画します。
             Win2DCanvas.Invalidate();
         }
-        /*
-
-        */
     }
 
+    /*
+        イベントの種類
+    */
     public enum EEvent {
         Undefined,
         Timeout,
-
-        Initialize,
-        Loaded,
-        GotFocus,
-        LostFocus,
-        Draw,
-
-        KeyDown,
-        KeyUp,
         PointerPressed,
         PointerMoved,
         PointerReleased,
-
-        LongPress,
-        Drag,
-
-        PointerWheelChanged,
-        ViewChanged,
-
-        InputLanguageChanged,
-        TextUpdating,
-        SelectionUpdating,
-        FormatUpdating,
-
-        TextRequested,
-        SelectionRequested,
-        LayoutRequested,
-
-        NotifyFocusLeaveCompleted,
-        CompositionStarted,
-        CompositionCompleted,
-        FocusRemoved,
     }
 
     /*
