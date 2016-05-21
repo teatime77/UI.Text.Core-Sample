@@ -137,8 +137,8 @@ namespace MyEdit {
                 MeasureText(ev.Text, TextFormat)
             );
 
-            // テキストを変更して、変更情報をアンドゥのスタックにプッシュします。
-            PushUndoStack(ev.Range.StartCaretPosition, ev.Range.EndCaretPosition, ev.Text);
+            // テキストを変更して、変更情報をアンドゥ/リドゥのスタックにプッシュします。
+            PushUndoRedoStack(ev.Range.StartCaretPosition, ev.Range.EndCaretPosition, ev.Text, UndoStack);
 
             // 再描画します。
             Win2DCanvas.Invalidate();

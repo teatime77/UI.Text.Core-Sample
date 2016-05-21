@@ -339,24 +339,11 @@ namespace MyEdit {
             // 変更情報をポップします。
             TDiff src_diff = src_stack.Pop();
 
-            // 今回の変更情報を作ります。
-            TDiff dst_diff = new TDiff(src_diff.DiffPos, src_diff.InsertedCount, src_diff.RemovedChars.Length);
+            // 削除された文字列
+            string removed_string = new string((from x in src_diff.RemovedChars select x.Chr).ToArray());
 
-            // 削除する文字列をコピーします。
-            Chars.CopyTo(src_diff.DiffPos, dst_diff.RemovedChars, 0, src_diff.InsertedCount);
-
-            // 文字列を削除します。
-            Chars.RemoveRange(src_diff.DiffPos, src_diff.InsertedCount);
-
-            // 新しい文字列を挿入します。
-            Chars.InsertRange(src_diff.DiffPos, src_diff.RemovedChars);
-
-            // 今回の変更情報をプッシュします。
-            dst_stack.Push(dst_diff);
-
-            // アプリ内で持っているテキストの選択位置を更新します。
-            SelOrigin = src_diff.DiffPos + src_diff.RemovedChars.Length;
-            SelCurrent = SelOrigin;
+            // テキストを変更して、変更情報をアンドゥ/リドゥのスタックにプッシュします。
+            PushUndoRedoStack(src_diff.DiffPos, src_diff.DiffPos + src_diff.InsertedCount, removed_string, dst_stack);
 
             // テキストの変更をIMEに伝えます。
             MyNotifyTextChanged(src_diff.DiffPos, src_diff.DiffPos + src_diff.InsertedCount, src_diff.RemovedChars.Length);
@@ -366,17 +353,17 @@ namespace MyEdit {
         }
 
         /*
-            テキストを変更して、変更情報をアンドゥのスタックにプッシュします。
+            テキストを変更して、変更情報をアンドゥ/リドゥのスタックにプッシュします。
         */
-        void PushUndoStack(int sel_start, int sel_end, string new_text) {
+        void PushUndoRedoStack(int sel_start, int sel_end, string new_text, Stack<TDiff> dst_stack) {
+            // 変更範囲にある改行文字の個数
+            int old_LF_cnt = GetLFCount(sel_start, sel_end);
+
             // 変更情報を作ります。
             TDiff diff = new TDiff(sel_start, sel_end - sel_start, new_text.Length);
 
             // 変更情報をアンドゥのスタックにプッシュします。
-            UndoStack.Push(diff);
-
-            // リドゥのスタックはクリアします。
-            RedoStack.Clear();
+            dst_stack.Push(diff);
 
             // 削除する文字列をコピーします。
             Chars.CopyTo(sel_start, diff.RemovedChars, 0, diff.RemovedChars.Length);
@@ -389,7 +376,13 @@ namespace MyEdit {
 
             // アプリ内で持っているテキストの選択位置を更新します。
             SelOrigin = sel_start + new_text.Length;
-            SelCurrent  = SelOrigin;
+            SelCurrent = SelOrigin;
+
+            // 新しく挿入した文字列に含まれる改行文字の個数
+            int new_LF_cnt = (from x in new_text where x == LF select x).Count();//   GetLFCount(sel_start, sel_start + new_text.Length);
+
+            // 文書の行数を更新します。
+            LineCount += new_LF_cnt - old_LF_cnt;
         }
 
         /*
@@ -623,14 +616,15 @@ namespace MyEdit {
 
                     // https://msdn.microsoft.com/en-us/windows/uwp/app-to-app/copy-and-paste
 
+                    DataPackage dataPackage = new DataPackage();
+                    dataPackage.RequestedOperation = DataPackageOperation.Copy;
+
                     // 選択範囲の文字列
-                    string text = new string( (from x in Chars.GetRange(SelStart, SelEnd - SelStart) select x.Chr).ToArray() );
+                    string text = new string((from x in Chars.GetRange(SelStart, SelEnd - SelStart) select x.Chr).ToArray());
 
                     // LFをCRLFに変換した文字列
                     string text_CRLF = text.Replace("\n", "\r\n");
 
-                    DataPackage dataPackage = new DataPackage();
-                    dataPackage.RequestedOperation = DataPackageOperation.Copy;
                     dataPackage.SetText(text_CRLF);
                     Clipboard.SetContent(dataPackage);
                 }
@@ -1134,16 +1128,14 @@ namespace MyEdit {
             選択した範囲のテキストを別のテキストに置換します。
         */
         void ReplaceText(int sel_start, int sel_end, string new_text) {
-            int old_LF_cnt = GetLFCount(sel_start, sel_end);
+            // リドゥのスタックはクリアします。
+            RedoStack.Clear();
 
-            // テキストを変更して、変更情報をアンドゥのスタックにプッシュします。
-            PushUndoStack(sel_start, sel_end, new_text);
+            // テキストを変更して、変更情報をアンドゥ/リドゥのスタックにプッシュします。
+            PushUndoRedoStack(sel_start, sel_end, new_text, UndoStack);
 
             // テキストの変更をIMEに伝えます。
             MyNotifyTextChanged(sel_start, sel_end, new_text.Length);
-
-            int new_LF_cnt = GetLFCount(sel_start, sel_start + new_text.Length);
-            LineCount += new_LF_cnt - old_LF_cnt;
 
             if (!double.IsNaN(LineHeight)) {
                 double document_height = LineCount * LineHeight;
