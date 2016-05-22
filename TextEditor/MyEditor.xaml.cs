@@ -619,13 +619,16 @@ namespace MyEdit {
                     DataPackage dataPackage = new DataPackage();
                     dataPackage.RequestedOperation = DataPackageOperation.Copy;
 
+                    // クリップボードにコピーする文字列
+                    string clipboard_str;
+
                     // 選択範囲の文字列
                     string text = new string((from x in Chars.GetRange(SelStart, SelEnd - SelStart) select x.Chr).ToArray());
 
                     // LFをCRLFに変換した文字列
-                    string text_CRLF = text.Replace("\n", "\r\n");
+                    clipboard_str = text.Replace("\n", "\r\n");
 
-                    dataPackage.SetText(text_CRLF);
+                    dataPackage.SetText(clipboard_str);
                     Clipboard.SetContent(dataPackage);
                 }
                 break;
